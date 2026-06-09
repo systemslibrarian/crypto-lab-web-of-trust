@@ -340,6 +340,7 @@ function renderTrustSection(state: AppState): HTMLElement {
 			controls.innerHTML = `<p class="panel-copy wot-empty">Build the sample network first.</p>`;
 			return;
 		}
+		const levels: TrustLevel[] = ['full', 'marginal', 'none'];
 		controls.innerHTML = state.ring
 			.allNames()
 			.filter((n) => n !== ME)
@@ -349,17 +350,19 @@ function renderTrustSection(state: AppState): HTMLElement {
 					<div class="trust-row" data-name="${name}">
 						<span class="trust-row-name">${name}</span>
 						<div class="trust-row-buttons" role="radiogroup" aria-label="Owner-trust for ${name}">
-							${(['full', 'marginal', 'none'] as TrustLevel[])
-								.map(
-									(level) => `
+							${levels
+								.map((level) => {
+									const active = t === level;
+									return `
 								<button type="button"
-									class="trust-pill trust-pill--${level} ${t === level ? 'is-active' : ''}"
+									class="trust-pill trust-pill--${level} ${active ? 'is-active' : ''}"
 									role="radio"
-									aria-checked="${t === level}"
+									aria-checked="${active}"
+									tabindex="${active ? '0' : '-1'}"
 									data-level="${level}">
 									${level}
-								</button>`,
-								)
+								</button>`;
+								})
 								.join('')}
 						</div>
 					</div>
@@ -368,21 +371,76 @@ function renderTrustSection(state: AppState): HTMLElement {
 			.join('');
 		marginalsInput.value = String(state.policy.marginalsNeeded);
 		depthInput.value = String(state.policy.maxDepth);
+
+		// Ensure every radiogroup has at least one focusable radio even if the
+		// stored owner-trust does not match any rendered level (shouldn't happen,
+		// but defensive — a radiogroup with no tabindex=0 is a keyboard trap).
+		controls.querySelectorAll<HTMLElement>('.trust-row-buttons').forEach((group) => {
+			if (!group.querySelector('.trust-pill[tabindex="0"]')) {
+				group.querySelector<HTMLButtonElement>('.trust-pill')?.setAttribute('tabindex', '0');
+			}
+		});
 	}
 
 	state.rerenderTrust = refresh;
 	refresh();
+
+	function selectLevel(row: HTMLElement, level: TrustLevel, focusAfter: boolean): void {
+		const name = row.dataset.name!;
+		state.ownerTrust.set(name, level);
+		refresh();
+		if (focusAfter) {
+			const newRow = controls.querySelector<HTMLElement>(`.trust-row[data-name="${CSS.escape(name)}"]`);
+			newRow?.querySelector<HTMLButtonElement>(`.trust-pill[data-level="${level}"]`)?.focus();
+		}
+		void recompute(state);
+	}
 
 	controls.addEventListener('click', (e) => {
 		const btn = (e.target as HTMLElement).closest('.trust-pill') as HTMLButtonElement | null;
 		if (!btn) return;
 		const row = btn.closest('.trust-row') as HTMLElement | null;
 		if (!row) return;
-		const name = row.dataset.name!;
-		const level = btn.dataset.level as TrustLevel;
-		state.ownerTrust.set(name, level);
-		refresh();
-		void recompute(state);
+		selectLevel(row, btn.dataset.level as TrustLevel, false);
+	});
+
+	controls.addEventListener('keydown', (e: KeyboardEvent) => {
+		const btn = (e.target as HTMLElement).closest('.trust-pill') as HTMLButtonElement | null;
+		if (!btn) return;
+		const row = btn.closest('.trust-row') as HTMLElement | null;
+		if (!row) return;
+		const group = btn.closest('.trust-row-buttons') as HTMLElement | null;
+		if (!group) return;
+		const pills = Array.from(group.querySelectorAll<HTMLButtonElement>('.trust-pill'));
+		const idx = pills.indexOf(btn);
+		let next = -1;
+		switch (e.key) {
+			case 'ArrowRight':
+			case 'ArrowDown':
+				next = (idx + 1) % pills.length;
+				break;
+			case 'ArrowLeft':
+			case 'ArrowUp':
+				next = (idx - 1 + pills.length) % pills.length;
+				break;
+			case 'Home':
+				next = 0;
+				break;
+			case 'End':
+				next = pills.length - 1;
+				break;
+			case ' ':
+			case 'Enter':
+				e.preventDefault();
+				selectLevel(row, btn.dataset.level as TrustLevel, true);
+				return;
+			default:
+				return;
+		}
+		if (next < 0) return;
+		e.preventDefault();
+		const target = pills[next]!;
+		selectLevel(row, target.dataset.level as TrustLevel, true);
 	});
 
 	function readPolicy(): void {
@@ -488,7 +546,7 @@ function renderValidity(state: AppState): string {
 		.join('');
 
 	return `
-		<div class="table-shell">
+		<div class="table-shell" tabindex="0" role="region" aria-label="Key validity table (scrollable)">
 			<table class="math-table">
 				<thead>
 					<tr><th>Key</th><th>Validity</th><th>Depth</th><th>Reason</th></tr>
@@ -672,7 +730,7 @@ function renderConceptsSection(): HTMLElement {
 				<p class="panel-copy">Two answers to the same question — "how do I decide which public keys are real?" — taken in opposite directions. The sibling <a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">crypto-lab-pki-chain</a> demo walks the hierarchical side.</p>
 			</div>
 		</div>
-		<div class="table-shell">
+		<div class="table-shell" tabindex="0" role="region" aria-label="Web of Trust vs hierarchical PKI comparison (scrollable)">
 			<table class="math-table">
 				<thead>
 					<tr><th>Axis</th><th>Web of Trust</th><th>Hierarchical PKI</th></tr>

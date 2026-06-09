@@ -116,6 +116,84 @@ async function run(label, deviceOpts) {
 		{ timeout: 10000 },
 	);
 
+	// SVG trust graph rendered (Item 1)
+	const svgNodes = await page.locator('.graph-node').count();
+	assert(svgNodes >= 9, `SVG graph rendered with >=9 nodes (got ${svgNodes})`);
+	const svgEdges = await page.locator('.graph-link').count();
+	assert(svgEdges >= 9, `SVG graph has >=9 edges (got ${svgEdges})`);
+
+	// Item 4: cert payload inspector opens modal
+	const firstInspectBtn = page.locator('[data-action="inspect"]').first();
+	await firstInspectBtn.scrollIntoViewIfNeeded();
+	await firstInspectBtn.click();
+	await page.waitForFunction(() => document.querySelector('#inspect-modal')?.open === true, { timeout: 3000 });
+	const payloadVisible = await page.locator('#inspect-body .inspect-block').first().textContent();
+	assert(/certify:/.test(payloadVisible ?? ''), 'inspect modal shows certify: payload bytes');
+	const hexBlocks = await page.locator('#inspect-body .inspect-block--hex').count();
+	assert(hexBlocks >= 2, `inspect modal renders hex blocks for payload and signature (got ${hexBlocks})`);
+	await page.click('#inspect-modal .inspect-close');
+	await page.waitForFunction(() => document.querySelector('#inspect-modal')?.open !== true);
+
+	// Reset to a clean baseline so the revocation assertions aren't
+	// confused by depth-cutoff state from the previous scenario.
+	await page.click('#scn-reset');
+	await page.waitForFunction(
+		() => document.querySelectorAll('.validity-row--valid').length >= 6,
+		{ timeout: 10000 },
+	);
+
+	// Item 2: revoke a certification — Eve was signed by Alice; revoke that
+	// cert and Eve must become invalid on recompute.
+	const aliceEveRevoke = page
+		.locator('.cert-row')
+		.filter({ has: page.locator('.cert-row-signer', { hasText: /^Alice$/ }) })
+		.filter({ has: page.locator('.cert-row-subject', { hasText: /^Eve$/ }) })
+		.locator('[data-action="revoke-cert"]');
+	await aliceEveRevoke.scrollIntoViewIfNeeded();
+	await aliceEveRevoke.click();
+	await page.waitForTimeout(400);
+	const eveValidityRow = page
+		.locator('.validity-row')
+		.filter({ has: page.locator('td strong', { hasText: /^Eve$/ }) });
+	const eveInvalid = await eveValidityRow.locator('.scenario-status--invalid').count();
+	assert(eveInvalid === 1, 'after revoking Alice→Eve, Eve is INVALID');
+
+	// Item 2: revoke a key (Bob) → Bob's signatures are dropped, but Bob
+	// himself stays valid because You signed Bob directly.
+	const bobRevoke = page.locator('.identity-card').filter({ hasText: 'Bob' }).locator('[data-action="revoke-key"]');
+	await bobRevoke.scrollIntoViewIfNeeded();
+	await bobRevoke.click();
+	await page.waitForTimeout(400);
+	const bobCard = page.locator('.identity-card--revoked').filter({ hasText: 'Bob' });
+	assert((await bobCard.count()) === 1, 'Bob shows up as revoked after self-revocation');
+
+	// Item 3: SKS-style flood scenario. Reset first so the assertions start
+	// clean (revoked Bob / Eve carry over otherwise).
+	await page.click('#scn-reset');
+	await page.waitForFunction(
+		() => document.querySelectorAll('.validity-row--valid').length >= 6,
+		{ timeout: 10000 },
+	);
+	await page.click('#scn-flood');
+	await page.waitForFunction(
+		() => document.querySelectorAll('.identity-card').length >= 50,
+		{ timeout: 30000 },
+	);
+	const totalIdents = await page.locator('.identity-card').count();
+	assert(totalIdents >= 59, `flood added >=50 identities (total now ${totalIdents})`);
+	const floodLog = await page.locator('.wot-log-line').first().textContent();
+	assert(/STAYS INVALID/.test(floodLog ?? ''), 'flood log explains Stranger stays invalid');
+	const strangerAfterFlood = page.locator('.validity-row').filter({ hasText: 'Stranger' }).first();
+	const strangerStillInvalid = await strangerAfterFlood.locator('.scenario-status--invalid').count();
+	assert(strangerStillInvalid === 1, 'Stranger remains INVALID after 50-signature flood');
+
+	// Reset before tail-of-page assertions
+	await page.click('#scn-reset');
+	await page.waitForFunction(
+		() => document.querySelectorAll('.validity-row--valid').length >= 6,
+		{ timeout: 10000 },
+	);
+
 	// Concept cards / comparison table
 	const compareRows = await page.locator('#concepts table tbody tr').count();
 	assert(compareRows >= 5, `WoT-vs-PKI comparison has >=5 rows (got ${compareRows})`);
@@ -124,10 +202,12 @@ async function run(label, deviceOpts) {
 	const realCards = await page.locator('#realworld .panel-card').count();
 	assert(realCards >= 8, `real-world + pitfalls cards present (got ${realCards})`);
 
-	// Scripture footer is last visible paragraph
+	// Scripture footer is last visible paragraph (excluding the inspect
+	// modal, which is a sibling of the footer in DOM order but lives in a
+	// <dialog> and is only shown on demand).
 	const lastText = await page.evaluate(() => {
-		const all = document.querySelectorAll('p');
-		return all[all.length - 1]?.textContent?.trim() ?? '';
+		const ps = Array.from(document.querySelectorAll('p')).filter((p) => !p.closest('dialog'));
+		return ps[ps.length - 1]?.textContent?.trim() ?? '';
 	});
 	assert(/glory of God/.test(lastText), 'scripture footer is last paragraph');
 

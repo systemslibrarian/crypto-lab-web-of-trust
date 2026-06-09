@@ -92,6 +92,47 @@
   color: var(--metric-muted);
 }
 
+.identity-card--revoked {
+  opacity: 0.7;
+}
+
+.identity-card--revoked .identity-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-soft);
+}
+
+.identity-badge--rev {
+  background: rgba(167, 158, 184, 0.18);
+  color: var(--ink-soft);
+}
+
+.identity-revoke-btn {
+  margin-top: 10px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.identity-revoke-btn:hover {
+  color: var(--warning-fg);
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.identity-revoke-btn:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
 /* Custom certification form */
 .wot-custom-cert {
   margin-top: 26px;
@@ -161,7 +202,7 @@
 
 .cert-row {
   display: grid;
-  grid-template-columns: 1fr auto 1fr auto;
+  grid-template-columns: 1fr auto 1fr auto auto;
   gap: 12px;
   align-items: center;
   padding: 10px 14px;
@@ -171,6 +212,55 @@
   font-family: var(--mono);
   font-size: 0.92rem;
   color: var(--ink-strong);
+}
+
+.cert-row--revoked {
+  opacity: 0.7;
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-soft);
+}
+
+.cert-row-actions {
+  display: inline-flex;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.cert-row-btn {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.cert-row-btn:hover {
+  color: var(--ink-strong);
+  border-color: var(--accent);
+}
+
+.cert-row-btn:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.cert-row-btn--danger:hover {
+  color: var(--warning-fg);
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.cert-row-tag--rev {
+  background: rgba(167, 158, 184, 0.15);
+  color: var(--ink-soft);
+  border-color: var(--line);
 }
 
 .cert-row--forged {
@@ -339,30 +429,286 @@
   color: var(--warning-fg);
 }
 
-.graph-edges {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 14px 16px;
+/* SVG trust graph (replaces the old text edge list) */
+.graph-shell {
+  margin-top: 14px;
+  padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--mono-block-bg);
-  color: var(--mono-block-fg);
-  display: grid;
+  border-radius: 20px;
+  background: var(--panel-strong);
+}
+
+.graph-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 460px;
+}
+
+.graph-node {
+  stroke-width: 2.5;
+  transition: stroke-width 160ms ease;
+}
+
+.graph-node-group:hover .graph-node {
+  stroke-width: 4;
+}
+
+.graph-node--valid {
+  fill: var(--accent-4);
+  stroke: var(--accent-4);
+  fill-opacity: 0.18;
+}
+
+.graph-node--invalid {
+  fill: var(--accent-2);
+  stroke: var(--accent-2);
+  fill-opacity: 0.16;
+}
+
+.graph-node--me {
+  fill: var(--accent);
+  stroke: var(--accent);
+  fill-opacity: 0.28;
+}
+
+.graph-node--revoked {
+  stroke-dasharray: 4 3;
+  fill-opacity: 0.06;
+}
+
+.graph-node--flood {
+  stroke-width: 1.2;
+  fill-opacity: 0.45;
+}
+
+.graph-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--ink-strong);
+  pointer-events: none;
+}
+
+.graph-link {
+  stroke-width: 1.6;
+  fill: none;
+  opacity: 0.88;
+}
+
+.graph-link--full {
+  stroke: var(--accent-4);
+  color: var(--accent-4);
+}
+
+.graph-link--marginal {
+  stroke: var(--accent-3);
+  color: var(--accent-3);
+}
+
+.graph-link--none {
+  stroke: var(--ink-soft);
+  color: var(--ink-soft);
+  opacity: 0.5;
+  stroke-dasharray: 3 2;
+}
+
+.graph-link--forged {
+  stroke: var(--accent-2);
+  color: var(--accent-2);
+  stroke-dasharray: 6 3;
+}
+
+.graph-link--revoked {
+  stroke-dasharray: 2 4;
+  opacity: 0.45;
+}
+
+.graph-link--flood {
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.graph-flood-note {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.graph-legend {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+.graph-legend li {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
 }
 
-.graph-edge {
-  font-family: var(--mono);
-  font-size: 0.9rem;
+.graph-legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  background: transparent;
 }
 
-.graph-edge code {
-  background: rgba(247, 241, 235, 0.1);
+.graph-legend-dot--valid {
+  border-color: var(--accent-4);
+  background: rgba(19, 111, 99, 0.2);
+}
+
+.graph-legend-dot--invalid {
+  border-color: var(--accent-2);
+  background: var(--warning-bg);
+}
+
+.graph-legend-dot--rev {
+  border-style: dashed;
+  border-color: var(--ink-soft);
+}
+
+.graph-legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid currentColor;
+}
+
+.graph-legend-line--full {
+  border-top-color: var(--accent-4);
+}
+
+.graph-legend-line--marginal {
+  border-top-color: var(--accent-3);
+}
+
+.graph-legend-line--none {
+  border-top: 2px dashed var(--ink-soft);
+}
+
+.graph-legend-line--forged {
+  border-top: 2px dashed var(--accent-2);
+}
+
+/* Inspect modal */
+.inspect-modal {
+  width: min(640px, calc(100% - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-strong);
+  color: var(--ink-strong);
+  box-shadow: var(--shadow);
+}
+
+.inspect-modal::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.inspect-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspect-modal-head h3 {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 1.05rem;
+}
+
+.inspect-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-strong);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.inspect-close:hover {
+  background: var(--mono-block-bg);
   color: var(--mono-block-fg);
 }
 
-.graph-edge--bad {
-  color: var(--accent-3);
+.inspect-close:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.inspect-body {
+  padding: 16px 20px 22px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.inspect-body h4 {
+  margin: 18px 0 6px;
+  color: var(--ink-strong);
+  font-size: 0.95rem;
+}
+
+.inspect-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0 0 8px;
+}
+
+.inspect-meta dt {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.inspect-meta dd {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 0.9rem;
+}
+
+.inspect-caption {
+  margin: 8px 0 4px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.inspect-block {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.inspect-block--hex {
+  letter-spacing: 0.04em;
+}
+
+.inspect-block--wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* Scenarios */

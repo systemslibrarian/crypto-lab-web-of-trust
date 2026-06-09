@@ -50,6 +50,25 @@ if (import.meta.env.DEV) {
 			const strangerStillInvalid = after.get('Stranger')?.valid === false;
 			console.log('Stranger remains invalid after forged cert:', strangerStillInvalid);
 			if (!strangerStillInvalid) console.error('SELF-TEST FAIL: forged cert was accepted.');
+
+			// Revocation: when Alice revokes her cert of Alice (n/a here), test
+			// instead by certifying Alice -> Stranger, then revoking it.
+			await ring.certify('Alice', 'Stranger');
+			const beforeRev = await computeValidity(ring, {
+				me: 'You',
+				ownerTrust: new Map([['Alice', 'full']]),
+				policy: { marginalsNeeded: 3, maxDepth: 5 },
+			});
+			console.log('Stranger valid after Alice signs:', beforeRev.get('Stranger')?.valid === true);
+			await ring.revokeCert('Alice', 'Stranger');
+			const afterRev = await computeValidity(ring, {
+				me: 'You',
+				ownerTrust: new Map([['Alice', 'full']]),
+				policy: { marginalsNeeded: 3, maxDepth: 5 },
+			});
+			const revWorks = afterRev.get('Stranger')?.valid === false;
+			console.log('Stranger invalid after Alice revokes her cert:', revWorks);
+			if (!revWorks) console.error('SELF-TEST FAIL: revocation was not applied.');
 		} catch (err) {
 			console.error('self-test threw:', err);
 		} finally {

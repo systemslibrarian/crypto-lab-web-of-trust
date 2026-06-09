@@ -89,9 +89,45 @@ function certBytes(subject: Identity): Uint8Array {
     return enc.encode(`certify:${subject.name}:${subject.fingerprint}`);
 }
 
+// Public-facing view of the payload `certify` signs. Same bytes as the
+// private certBytes() helper; exposed so the UI can show users exactly what
+// went under the signing key.
+export function certifyPayloadBytes(subject: Identity): Uint8Array {
+    return certBytes(subject);
+}
+
+// Bytes signed by a self-revocation of a key. The owner signs this payload
+// with the key they wish to retire; verification must succeed under that
+// same key, which is how the engine knows the owner actually authorised it.
+function revokeKeyBytes(subject: Identity): Uint8Array {
+    return enc.encode(`revoke-key:${subject.name}:${subject.fingerprint}`);
+}
+
+// Bytes signed by a certifier revoking their OWN earlier certification of a
+// subject. Verifies under the signer's key.
+function revokeCertBytes(signer: Identity, subject: Identity): Uint8Array {
+    return enc.encode(`revoke-cert:${signer.name}->${subject.name}:${subject.fingerprint}`);
+}
+
+export type RevocationType = 'key' | 'cert';
+
+// A revocation: either an owner retires their own key, or a certifier
+// retracts a single certification they previously issued. Both are real
+// signatures; the trust walk ignores any cert blocked by a verifying
+// revocation.
+export interface Revocation {
+    type: RevocationType;
+    // For type='key', signerName === subjectName (self-revocation).
+    // For type='cert', signerName is the original certifier.
+    signerName: string;
+    subjectName: string;
+    signatureB64: string;
+}
+
 export class Keyring {
     private people = new Map<string, PrivateIdentity>();
     certs: Certification[] = [];
+    revocations: Revocation[] = [];
 
     async createIdentity(name: string): Promise<Identity> {
         await init();
@@ -143,6 +179,63 @@ export class Keyring {
             return false;
         }
     }
+
+    // Owner retires their own key. The signature is produced with the very
+    // key being revoked, which is the only way the engine accepts the
+    // assertion as authentic. Once verified, any certification originating
+    // from this key is ignored by computeValidity.
+    async revokeKey(name: string): Promise<Revocation | { error: string }> {
+        const owner = this.people.get(name);
+        if (!owner) return { error: 'Unknown identity.' };
+        await init();
+        const sig = await crypto.subtle.sign(SIGN, owner.privateKey, revokeKeyBytes(owner) as BufferSource);
+        const rev: Revocation = { type: 'key', signerName: name, subjectName: name, signatureB64: b64(sig) };
+        this.revocations.push(rev);
+        return rev;
+    }
+
+    // Certifier retracts their earlier certification of `subjectName`. The
+    // signature is produced under the certifier's key. computeValidity will
+    // drop the matching certification from the input set.
+    async revokeCert(signerName: string, subjectName: string): Promise<Revocation | { error: string }> {
+        const signer = this.people.get(signerName);
+        const subject = this.people.get(subjectName);
+        if (!signer || !subject) return { error: 'Unknown identity.' };
+        await init();
+        const sig = await crypto.subtle.sign(
+            SIGN,
+            signer.privateKey,
+            revokeCertBytes(signer, subject) as BufferSource,
+        );
+        const rev: Revocation = {
+            type: 'cert',
+            signerName,
+            subjectName,
+            signatureB64: b64(sig),
+        };
+        this.revocations.push(rev);
+        return rev;
+    }
+
+    async verifyRevocation(rev: Revocation): Promise<boolean> {
+        const signer = this.people.get(rev.signerName);
+        const subject = this.people.get(rev.subjectName);
+        if (!signer || !subject) return false;
+        try {
+            await init();
+            const key = await crypto.subtle.importKey('jwk', signer.publicKeyJwk, ALGO, false, ['verify']);
+            const bytes =
+                rev.type === 'key' ? revokeKeyBytes(subject) : revokeCertBytes(signer, subject);
+            return await crypto.subtle.verify(
+                SIGN,
+                key,
+                unb64(rev.signatureB64) as BufferSource,
+                bytes as BufferSource,
+            );
+        } catch {
+            return false;
+        }
+    }
 }
 
 // --- trust computation -----------------------------------------------------
@@ -169,6 +262,12 @@ export interface KeyValidity {
 // Compute which keys are VALID from your point of view. Only certifications
 // that VERIFY cryptographically are counted. A key is valid if reachable from
 // you through introducers you trust, per the policy, within maxDepth.
+//
+// Revocations (additive, post-Appendix-A): before walking trust, any
+// certification whose signer's key has been revoked, or whose specific
+// (signer→subject) edge has been retracted by the signer, is dropped from
+// the input set. The trust math itself is unchanged — only the universe of
+// certifications it operates on shrinks.
 export async function computeValidity(
     ring: Keyring,
     query: TrustQuery,
@@ -178,6 +277,24 @@ export async function computeValidity(
     for (const c of ring.certs) {
         if (await ring.verifyCert(c)) goodCerts.push(c);
     }
+
+    // Compute revocation sets. Each revocation is itself a signature that
+    // must verify before it takes effect.
+    const revokedKeys = new Set<string>();
+    const revokedEdges = new Set<string>();
+    for (const r of ring.revocations) {
+        if (!(await ring.verifyRevocation(r))) continue;
+        if (r.type === 'key') revokedKeys.add(r.subjectName);
+        else revokedEdges.add(`${r.signerName}=>${r.subjectName}`);
+    }
+
+    // Filter out certs whose signer's key has been revoked, and certs whose
+    // specific edge has been retracted. NOTE: revoking YOUR OWN key would
+    // disable your ability to act as an introducer; we intentionally do not
+    // short-circuit `me` here so the consequence is visible in the output.
+    const usableCerts = goodCerts.filter(
+        (c) => !revokedKeys.has(c.signerName) && !revokedEdges.has(`${c.signerName}=>${c.subjectName}`),
+    );
 
     const result = new Map<string, KeyValidity>();
     // your own key is ultimately valid at depth 0
@@ -196,7 +313,7 @@ export async function computeValidity(
 
             const fulls: string[] = [];
             const marginals: string[] = [];
-            for (const c of goodCerts) {
+            for (const c of usableCerts) {
                 if (c.subjectName !== subject) continue;
                 if (!validBefore.has(c.signerName)) continue; // signer valid in a PRIOR layer
                 // You (the anchor) are an implicit fully-trusted introducer for keys

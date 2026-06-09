@@ -7,6 +7,7 @@
 
 import {
 	Keyring,
+	certifyPayloadBytes,
 	computeValidity,
 	shortFp,
 	signingAlgoName,
@@ -202,13 +203,31 @@ function renderKeyringSection(state: AppState): HTMLElement {
 			.map((name) => {
 				const ident = state.ring.identity(name)!;
 				const isMe = name === ME;
+				const revoked = isKeyRevoked(state, name);
+				const cls = [
+					'identity-card',
+					isMe ? 'identity-card--me' : '',
+					revoked ? 'identity-card--revoked' : '',
+				]
+					.filter(Boolean)
+					.join(' ');
+				const badge = isMe
+					? '<span class="identity-badge">that’s you</span>'
+					: revoked
+						? '<span class="identity-badge identity-badge--rev">revoked</span>'
+						: '';
+				const action =
+					isMe || revoked
+						? ''
+						: `<button type="button" class="identity-revoke-btn" data-action="revoke-key" data-name="${name}" aria-label="Revoke ${name}'s key (self-revocation)">revoke key</button>`;
 				return `
-					<div class="identity-card ${isMe ? 'identity-card--me' : ''}">
+					<div class="${cls}">
 						<div class="identity-card-head">
 							<span class="identity-name">${name}</span>
-							${isMe ? '<span class="identity-badge">that’s you</span>' : ''}
+							${badge}
 						</div>
 						<p class="identity-fp">${shortFp(ident.fingerprint)}</p>
+						${action}
 					</div>
 				`;
 			})
@@ -275,7 +294,64 @@ function renderKeyringSection(state: AppState): HTMLElement {
 		})();
 	});
 
+	// Delegated click handlers for inspect / revoke-cert / revoke-key buttons
+	// rendered inside the keyring + cert-list. Using delegation keeps the
+	// handlers attached across rerenders.
+	section.addEventListener('click', (e) => {
+		const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
+		if (!btn) return;
+		const action = btn.dataset.action;
+		if (action === 'inspect') {
+			const idx = Number(btn.dataset.certIdx);
+			if (Number.isInteger(idx)) openInspectModal(state, idx);
+			return;
+		}
+		if (action === 'revoke-cert') {
+			const idx = Number(btn.dataset.certIdx);
+			const cert = state.ring.certs[idx];
+			if (!cert) return;
+			btn.disabled = true;
+			void (async () => {
+				const r = await state.ring.revokeCert(cert.signerName, cert.subjectName);
+				if (!('error' in r)) {
+					state.logScenario(
+						`${cert.signerName} retracted their certification of ${cert.subjectName}. The signature is real (verifies under ${cert.signerName}'s key); the edge is now dropped from the trust walk.`,
+					);
+				}
+				state.rerenderKeyring();
+				await recompute(state);
+			})();
+			return;
+		}
+		if (action === 'revoke-key') {
+			const name = btn.dataset.name;
+			if (!name) return;
+			btn.disabled = true;
+			void (async () => {
+				const r = await state.ring.revokeKey(name);
+				if (!('error' in r)) {
+					state.logScenario(
+						`${name} self-revoked their key (signed with the key being retired). Any certifications they previously issued are now ignored.`,
+					);
+				}
+				state.rerenderKeyring();
+				await recompute(state);
+			})();
+			return;
+		}
+	});
+
 	return section;
+}
+
+function isCertRevoked(state: AppState, c: Certification): boolean {
+	return state.ring.revocations.some(
+		(r) => r.type === 'cert' && r.signerName === c.signerName && r.subjectName === c.subjectName,
+	);
+}
+
+function isKeyRevoked(state: AppState, name: string): boolean {
+	return state.ring.revocations.some((r) => r.type === 'key' && r.subjectName === name);
 }
 
 function renderCertList(state: AppState): string {
@@ -285,12 +361,29 @@ function renderCertList(state: AppState): string {
 	const rows = state.ring.certs
 		.map((c, i) => {
 			const flagged = (c as Certification & { _forged?: boolean })._forged;
+			const revoked = isCertRevoked(state, c);
+			const cls = [
+				'cert-row',
+				flagged ? 'cert-row--forged' : '',
+				revoked ? 'cert-row--revoked' : '',
+			]
+				.filter(Boolean)
+				.join(' ');
+			const tag = flagged
+				? '<span class="cert-row-tag">forged</span>'
+				: revoked
+					? '<span class="cert-row-tag cert-row-tag--rev">revoked</span>'
+					: `<span class="cert-row-idx">#${i + 1}</span>`;
 			return `
-				<li class="cert-row ${flagged ? 'cert-row--forged' : ''}">
+				<li class="${cls}" data-cert-idx="${i}">
 					<span class="cert-row-signer">${c.signerName}</span>
 					<span class="cert-row-arrow" aria-hidden="true">→</span>
 					<span class="cert-row-subject">${c.subjectName}</span>
-					${flagged ? '<span class="cert-row-tag">forged</span>' : `<span class="cert-row-idx">#${i + 1}</span>`}
+					${tag}
+					<span class="cert-row-actions">
+						<button type="button" class="cert-row-btn" data-action="inspect" data-cert-idx="${i}" aria-label="Inspect certification ${c.signerName} to ${c.subjectName}">inspect</button>
+						${revoked || flagged ? '' : `<button type="button" class="cert-row-btn cert-row-btn--danger" data-action="revoke-cert" data-cert-idx="${i}" aria-label="Revoke certification ${c.signerName} to ${c.subjectName}">revoke</button>`}
+					</span>
 				</li>
 			`;
 		})
@@ -299,6 +392,64 @@ function renderCertList(state: AppState): string {
 		<h3 class="wot-section-h">Certifications on file</h3>
 		<ul class="cert-list">${rows}</ul>
 	`;
+}
+
+function bytesToHex(b: Uint8Array): string {
+	return Array.from(b)
+		.map((x) => x.toString(16).padStart(2, '0'))
+		.join('');
+}
+
+function base64ToBytes(s: string): Uint8Array {
+	const bin = atob(s);
+	const out = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+	return out;
+}
+
+function groupHex(hex: string, groupSize = 4, perLine = 8): string {
+	const groups: string[] = [];
+	for (let i = 0; i < hex.length; i += groupSize) groups.push(hex.slice(i, i + groupSize));
+	const lines: string[] = [];
+	for (let i = 0; i < groups.length; i += perLine) {
+		lines.push(groups.slice(i, i + perLine).join(' '));
+	}
+	return lines.join('\n');
+}
+
+function openInspectModal(state: AppState, certIdx: number): void {
+	const cert = state.ring.certs[certIdx];
+	if (!cert) return;
+	const signerIdent = state.ring.identity(cert.signerName);
+	const subjectIdent = state.ring.identity(cert.subjectName);
+	const dlg = document.querySelector<HTMLDialogElement>('#inspect-modal');
+	const body = document.querySelector<HTMLElement>('#inspect-body');
+	if (!dlg || !body || !subjectIdent || !signerIdent) return;
+	const payload = certifyPayloadBytes(subjectIdent);
+	const payloadHex = bytesToHex(payload);
+	const payloadText = new TextDecoder().decode(payload);
+	const sigBytes = base64ToBytes(cert.signatureB64);
+	const sigHex = bytesToHex(sigBytes);
+	const flagged = (cert as Certification & { _forged?: boolean })._forged === true;
+	body.innerHTML = `
+		<dl class="inspect-meta">
+			<dt>Signer</dt><dd>${signerIdent.name} <code>${shortFp(signerIdent.fingerprint)}</code></dd>
+			<dt>Subject</dt><dd>${subjectIdent.name} <code>${shortFp(subjectIdent.fingerprint)}</code></dd>
+			<dt>Algorithm</dt><dd>${signingAlgoName()}</dd>
+			<dt>Status</dt><dd>${flagged ? '<span class="scenario-status--invalid">forged — signature will NOT verify</span>' : '<span class="scenario-status--valid">real signature, verifies under signer\'s key</span>'}</dd>
+		</dl>
+		<h4>Signed payload (${payload.length} bytes)</h4>
+		<p class="inspect-caption">UTF-8 text:</p>
+		<pre class="inspect-block">${payloadText}</pre>
+		<p class="inspect-caption">Hex:</p>
+		<pre class="inspect-block inspect-block--hex">${groupHex(payloadHex)}</pre>
+		<h4>Signature (${sigBytes.length} bytes)</h4>
+		<p class="inspect-caption">Base64 (as stored):</p>
+		<pre class="inspect-block inspect-block--wrap">${cert.signatureB64}</pre>
+		<p class="inspect-caption">Hex:</p>
+		<pre class="inspect-block inspect-block--hex">${groupHex(sigHex)}</pre>
+	`;
+	dlg.showModal();
 }
 
 // ---------- 3. Trust settings ------------------------------------------------
@@ -538,13 +689,6 @@ function renderValidity(state: AppState): string {
 		})
 		.join('');
 
-	const graph = state.ring.certs
-		.map((c) => {
-			const ok = !(c as Certification & { _forged?: boolean })._forged;
-			return `<li class="graph-edge ${ok ? '' : 'graph-edge--bad'}"><code>${c.signerName}</code> → <code>${c.subjectName}</code>${ok ? '' : ' <span class="cert-row-tag">forged</span>'}</li>`;
-		})
-		.join('');
-
 	return `
 		<div class="table-shell" tabindex="0" role="region" aria-label="Key validity table (scrollable)">
 			<table class="math-table">
@@ -554,8 +698,217 @@ function renderValidity(state: AppState): string {
 				<tbody>${rows}</tbody>
 			</table>
 		</div>
-		<h3 class="wot-section-h">Certification graph</h3>
-		<ul class="graph-edges">${graph}</ul>
+		<h3 class="wot-section-h">Trust graph</h3>
+		<p class="panel-copy">Center = you. Rings are validation depth (1 hop, 2 hops…). Edge color encodes the signer's owner-trust: <em>green</em> = full, <em>yellow</em> = marginal, <em>grey</em> = none (carries no validity).</p>
+		${renderGraphSvg(state)}
+	`;
+}
+
+interface NodePos {
+	x: number;
+	y: number;
+	name: string;
+	depth: number;
+	valid: boolean;
+	revoked: boolean;
+	isMe: boolean;
+	isFlood: boolean;
+}
+
+function renderGraphSvg(state: AppState): string {
+	const v = state.validity!;
+	const allNames = state.ring.allNames();
+	const flooders = allNames.filter((n) => n.startsWith('Flood'));
+	const named = allNames.filter((n) => !n.startsWith('Flood'));
+
+	const W = 760;
+	const H = 460;
+	const cx = W / 2;
+	const cy = H / 2 - 10;
+	const ringRadius: Record<number, number> = { 1: 110, 2: 175, 3: 225, 4: 265 };
+
+	// Bucket nodes by validation depth (or 'invalid')
+	const byDepth = new Map<number, string[]>();
+	for (const n of named) {
+		const kv = v.get(n);
+		const key = kv?.valid ? kv.depth : -1;
+		if (!byDepth.has(key)) byDepth.set(key, []);
+		byDepth.get(key)!.push(n);
+	}
+
+	const positions = new Map<string, NodePos>();
+
+	// You at the center
+	const youName = named.find((n) => n === ME);
+	if (youName) {
+		positions.set(youName, {
+			x: cx,
+			y: cy,
+			name: youName,
+			depth: 0,
+			valid: true,
+			revoked: isKeyRevoked(state, youName),
+			isMe: true,
+			isFlood: false,
+		});
+	}
+
+	// Each depth ring (valid > 0) distributes evenly around the full circle,
+	// starting from straight up. Invalid nodes (depth = -1) sit on the bottom
+	// arc so they're visually outside the trust frontier.
+	for (const [depth, names] of byDepth.entries()) {
+		if (depth === 0) continue;
+		const count = names.length;
+		if (depth >= 1) {
+			const r = ringRadius[Math.min(depth, 4)] ?? 265;
+			names.forEach((name, i) => {
+				const angle = -Math.PI / 2 + (2 * Math.PI * i) / count;
+				const x = cx + r * Math.cos(angle);
+				const y = cy + r * Math.sin(angle);
+				const kv = v.get(name)!;
+				positions.set(name, {
+					x,
+					y,
+					name,
+					depth: kv.depth,
+					valid: kv.valid,
+					revoked: isKeyRevoked(state, name),
+					isMe: false,
+					isFlood: false,
+				});
+			});
+		} else {
+			// Invalid: spread across bottom arc
+			const r = 200;
+			const spread = Math.min(Math.PI * 0.8, 0.5 + count * 0.18);
+			const start = Math.PI / 2 - spread / 2;
+			names.forEach((name, i) => {
+				const angle = count === 1 ? Math.PI / 2 : start + (spread * i) / (count - 1);
+				const x = cx + r * Math.cos(angle);
+				const y = cy + r * Math.sin(angle);
+				positions.set(name, {
+					x,
+					y,
+					name,
+					depth: -1,
+					valid: false,
+					revoked: isKeyRevoked(state, name),
+					isMe: false,
+					isFlood: false,
+				});
+			});
+		}
+	}
+
+	// Flooders cluster tightly around Stranger so the swarm is visible.
+	if (flooders.length) {
+		const anchor = positions.get('Stranger') ?? { x: cx + 100, y: cy + 140 } as NodePos;
+		flooders.forEach((name, i) => {
+			const angle = (2 * Math.PI * i) / flooders.length;
+			const r = 40 + (i % 3) * 6;
+			positions.set(name, {
+				x: anchor.x + r * Math.cos(angle),
+				y: anchor.y + r * Math.sin(angle),
+				name,
+				depth: -1,
+				valid: false,
+				revoked: false,
+				isMe: false,
+				isFlood: true,
+			});
+		});
+	}
+
+	// Edges
+	const edges = state.ring.certs
+		.map((c) => {
+			const a = positions.get(c.signerName);
+			const b = positions.get(c.subjectName);
+			if (!a || !b) return '';
+			const forged = (c as Certification & { _forged?: boolean })._forged === true;
+			const revoked = isCertRevoked(state, c);
+			const signerKeyRevoked = isKeyRevoked(state, c.signerName);
+			const signerTrust = c.signerName === ME ? 'full' : state.ownerTrust.get(c.signerName) ?? 'none';
+			const cls = [
+				'graph-link',
+				`graph-link--${signerTrust}`,
+				forged ? 'graph-link--forged' : '',
+				revoked || signerKeyRevoked ? 'graph-link--revoked' : '',
+				a.isFlood ? 'graph-link--flood' : '',
+			]
+				.filter(Boolean)
+				.join(' ');
+
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			const len = Math.hypot(dx, dy) || 1;
+			const radiusA = a.isMe ? 24 : a.isFlood ? 6 : 18;
+			const radiusB = b.isMe ? 24 : b.isFlood ? 6 : 18;
+			const sx = a.x + (dx / len) * radiusA;
+			const sy = a.y + (dy / len) * radiusA;
+			const tx = b.x - (dx / len) * radiusB;
+			const ty = b.y - (dy / len) * radiusB;
+			const titleNote = forged
+				? ' (forged)'
+				: revoked
+					? ' (revoked)'
+					: signerKeyRevoked
+						? ' (signer key revoked)'
+						: '';
+			return `<line class="${cls}" x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" marker-end="url(#wot-arrow)"><title>${c.signerName} → ${c.subjectName}${titleNote}</title></line>`;
+		})
+		.join('');
+
+	// Nodes
+	const nodes = [...positions.values()]
+		.map((p) => {
+			const fp = state.ring.identity(p.name)?.fingerprint ?? '';
+			const ot = p.isMe ? 'you' : state.ownerTrust.get(p.name) ?? 'none';
+			const cls = [
+				'graph-node',
+				p.valid ? 'graph-node--valid' : 'graph-node--invalid',
+				`graph-node--ot-${ot}`,
+				p.revoked ? 'graph-node--revoked' : '',
+				p.isFlood ? 'graph-node--flood' : '',
+				p.isMe ? 'graph-node--me' : '',
+			]
+				.filter(Boolean)
+				.join(' ');
+			const r = p.isMe ? 24 : p.isFlood ? 6 : 18;
+			const label = p.isFlood
+				? ''
+				: `<text class="graph-label" x="${p.x.toFixed(1)}" y="${(p.y + r + 14).toFixed(1)}" text-anchor="middle">${p.name}</text>`;
+			const title = `${p.name}${p.isFlood ? ' (untrusted flood signer)' : ''} · ${shortFp(fp)} · ${p.valid ? `valid at depth ${p.depth}` : 'invalid'}${p.revoked ? ' · key revoked' : ''}`;
+			return `<g class="graph-node-group"><circle class="${cls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}"><title>${title}</title></circle>${label}</g>`;
+		})
+		.join('');
+
+	const floodNote = flooders.length
+		? `<p class="graph-flood-note">${flooders.length} flood signer${flooders.length === 1 ? '' : 's'} drawn as a small cluster around <strong>Stranger</strong> — each carries a real signature, but none of them have owner-trust, so the trust walk ignores them.</p>`
+		: '';
+
+	return `
+		<div class="graph-shell">
+			<svg class="graph-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trust graph with ${named.length} named identities${flooders.length ? ` plus ${flooders.length} flood signers` : ''} and ${state.ring.certs.length} certifications">
+				<defs>
+					<marker id="wot-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+						<path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+					</marker>
+				</defs>
+				${edges}
+				${nodes}
+			</svg>
+			${floodNote}
+			<ul class="graph-legend">
+				<li><span class="graph-legend-dot graph-legend-dot--valid"></span>Valid key</li>
+				<li><span class="graph-legend-dot graph-legend-dot--invalid"></span>Invalid key</li>
+				<li><span class="graph-legend-dot graph-legend-dot--rev"></span>Revoked key</li>
+				<li><span class="graph-legend-line graph-legend-line--full"></span>Edge from full-trust introducer</li>
+				<li><span class="graph-legend-line graph-legend-line--marginal"></span>Edge from marginal introducer</li>
+				<li><span class="graph-legend-line graph-legend-line--none"></span>Edge from untrusted signer</li>
+				<li><span class="graph-legend-line graph-legend-line--forged"></span>Forged / revoked edge</li>
+			</ul>
+		</div>
 	`;
 }
 
@@ -571,7 +924,7 @@ function renderScenariosSection(state: AppState): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 4</p>
 				<h2 id="scenarios-heading">Break trust</h2>
-				<p class="panel-copy">Four ways the web of trust bends and breaks. Each button mutates the current state, recomputes validity, and logs what happened. <strong>Reset baseline</strong> rebuilds the original network.</p>
+				<p class="panel-copy">Five ways the web of trust bends and breaks. Each button mutates the current state, recomputes validity, and logs what happened. <strong>Reset baseline</strong> rebuilds the original network.</p>
 			</div>
 		</div>
 		<div id="scenario-buttons" class="wot-scenario-buttons"></div>
@@ -598,6 +951,7 @@ function renderScenariosSection(state: AppState): HTMLElement {
 			<button id="scn-orphan" class="tab-button" type="button">No trust path (highlight Stranger)</button>
 			<button id="scn-overtrust" class="tab-button" type="button">Over-trust Eve (full) — watch Heretic</button>
 			<button id="scn-depth" class="tab-button" type="button">Cut depth to 1</button>
+			<button id="scn-flood" class="tab-button" type="button">Flood Stranger with 50 sigs (SKS-style)</button>
 			<button id="scn-reset" class="tab-button" type="button">Reset baseline</button>
 		`;
 
@@ -612,6 +966,9 @@ function renderScenariosSection(state: AppState): HTMLElement {
 		});
 		section.querySelector<HTMLButtonElement>('#scn-depth')!.addEventListener('click', () => {
 			void scenarioDepth(state);
+		});
+		section.querySelector<HTMLButtonElement>('#scn-flood')!.addEventListener('click', () => {
+			void scenarioFlood(state);
 		});
 		section.querySelector<HTMLButtonElement>('#scn-reset')!.addEventListener('click', () => {
 			void scenarioReset(state);
@@ -684,6 +1041,54 @@ async function scenarioDepth(state: AppState): Promise<void> {
 		});
 	state.logScenario(
 		`maxDepth = 1. Only keys you personally signed remain valid. Dropped from the trusted set: ${dropped.length ? dropped.join(', ') : '(none additional)'}.`,
+	);
+}
+
+async function scenarioFlood(state: AppState): Promise<void> {
+	// Pedagogical model of the SKS keyserver flooding attack. Real attackers
+	// uploaded hundreds of thousands of valid signatures to one key, breaking
+	// GnuPG's import path. The cryptographic story is dull: each signature
+	// is real, but from a key nobody trusts — so validity is unchanged. The
+	// damage was OPERATIONAL: keyserver bandwidth, gpg parse time. We model
+	// the cryptographic invariance here and measure the validity-compute time
+	// before/after so the operational cost is visible.
+	const N = 50;
+	const tBefore = performance.now();
+	await computeValidity(state.ring, { me: ME, ownerTrust: state.ownerTrust, policy: state.policy });
+	const baselineMs = performance.now() - tBefore;
+
+	for (let i = 0; i < N; i++) {
+		const name = `Flood${String(i).padStart(2, '0')}`;
+		await state.ring.createIdentity(name);
+		// Each flooder is not assigned owner-trust → defaults to 'none'.
+		const r = await state.ring.certify(name, 'Stranger');
+		if ('error' in r) {
+			state.logScenario(`Flooding failed at iteration ${i}: ${r.error}`);
+			state.rerenderKeyring();
+			state.rerenderTrust();
+			await recompute(state);
+			return;
+		}
+	}
+
+	const tAfter = performance.now();
+	const validity = await computeValidity(state.ring, {
+		me: ME,
+		ownerTrust: state.ownerTrust,
+		policy: state.policy,
+	});
+	const afterMs = performance.now() - tAfter;
+	state.validity = validity;
+	state.rerenderKeyring();
+	state.rerenderTrust();
+	state.rerenderValidity();
+
+	const stranger = validity.get('Stranger');
+	const slowdown = baselineMs > 0 ? (afterMs / baselineMs).toFixed(1) : '∞';
+	state.logScenario(
+		stranger?.valid
+			? `${N} flood signatures unexpectedly validated Stranger — owner-trust may be misconfigured.`
+			: `${N} real signatures from untrusted Flood00..${String(N - 1).padStart(2, '0')} added to Stranger. Stranger STAYS INVALID — none of the flooders are trusted introducers. computeValidity went from ${baselineMs.toFixed(0)}ms → ${afterMs.toFixed(0)}ms (≈${slowdown}× slower). Crypto is unchanged; the SKS pain was operational.`,
 	);
 }
 
@@ -805,6 +1210,28 @@ function renderFooter(): HTMLElement {
 	return footer;
 }
 
+// ---------- Inspect modal ----------------------------------------------------
+
+function renderInspectModal(): HTMLDialogElement {
+	const dlg = document.createElement('dialog');
+	dlg.id = 'inspect-modal';
+	dlg.className = 'inspect-modal';
+	dlg.setAttribute('aria-labelledby', 'inspect-modal-title');
+	dlg.innerHTML = `
+		<div class="inspect-modal-head">
+			<h3 id="inspect-modal-title">Certification payload</h3>
+			<button type="button" class="inspect-close" aria-label="Close inspector">×</button>
+		</div>
+		<div id="inspect-body" class="inspect-body"></div>
+	`;
+	dlg.addEventListener('click', (e) => {
+		if ((e.target as HTMLElement).closest('.inspect-close')) {
+			dlg.close();
+		}
+	});
+	return dlg;
+}
+
 // ---------- mountApp ---------------------------------------------------------
 
 export function mountApp(root: HTMLDivElement): void {
@@ -832,6 +1259,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderConceptsSection());
 	shell.appendChild(renderRealWorldSection());
 	shell.appendChild(renderFooter());
+	shell.appendChild(renderInspectModal());
 
 	root.replaceChildren(shell);
 }

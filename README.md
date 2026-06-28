@@ -14,27 +14,43 @@ An interactive model of the PGP/OpenPGP **Web of Trust** using real signatures v
 
 ## Live Demo
 
-[**https://systemslibrarian.github.io/crypto-lab-web-of-trust/**](https://systemslibrarian.github.io/crypto-lab-web-of-trust/)
+**[systemslibrarian.github.io/crypto-lab-web-of-trust](https://systemslibrarian.github.io/crypto-lab-web-of-trust/)**
 
 The page walks through six sections. **The keyring** generates a small social graph of real keypairs in your browser (You, Alice, Bob, Carol, Dave, Eve, Frank, Heretic, Stranger) and the certifications between them, and lets you add your own. **Your trust settings** let you assign owner-trust (full / marginal / none) to each non-you identity and adjust the policy — `marginalsNeeded` (default 3) and `maxDepth` (default 5) — matching GnuPG's defaults. **Compute web of trust** runs the validity computation and shows every key with a valid / invalid badge, the depth it was validated at, and the reason. **Break trust** runs four scenarios: a forged certification (the bogus signature fails to verify and the target stays invalid — the crypto enforces this, not policy), an orphan key nobody trusted has signed, an over-trusted introducer that suddenly validates a downstream key, and a depth cutoff that drops distant keys. The remaining sections compare Web of Trust to hierarchical PKI and explain where the model is actually deployed today (GnuPG, key-signing parties, Linux distribution signing, the SKS keyserver flooding incident, sigstore-style attestations).
+
+## What Can Go Wrong
+
+- A single over-trusted introducer becomes a chokepoint: marking the wrong identity "fully trusted" can validate every key it has signed, including malicious ones.
+- The bootstrap problem: a brand-new key nobody has certified has no path to validity, which is why key-signing parties and trusted introducers matter.
+- Web of Trust does not scale to trusting strangers — the model breaks down at web scale, which is precisely why TLS adopted hierarchical PKI instead.
+- Forged certifications are caught only because signatures are verified cryptographically; trust policy alone never makes a bad signature valid.
+- Keyserver and distribution risks are real: the SKS keyserver certificate-flooding incident showed how unauthenticated certification attachment can be abused; revocation and key hygiene remain hard in practice.
+
+## Real-World Usage
+
+- GnuPG (`gpg`) and Sequoia-PGP implement the OpenPGP Web of Trust for email and file signing/encryption.
+- Key-signing parties and trusted-introducer setups bootstrap validity within communities and organizations.
+- Linux distributions sign packages and releases with PGP keys, with trust rooted in maintainer keys.
+- The SKS keyserver network historically distributed OpenPGP certifications (and exposed the flooding-attack weakness).
+- Modern attestation systems such as sigstore echo the same web-of-attestation idea in a different form.
 
 ## How to Run Locally
 
 ```bash
-git clone https://github.com/systemslibrarian/crypto-lab-web-of-trust.git
+git clone https://github.com/systemslibrarian/crypto-lab-web-of-trust
 cd crypto-lab-web-of-trust
 npm install
-npm run dev      # local dev server with HMR
-npm run build    # type-check + production build to dist/
-npm run preview  # serve the built dist/ locally
+npm run dev
 ```
 
-No environment variables, no API keys, no servers. Everything runs client-side in the browser.
-
-## Part of the Crypto-Lab Suite
-
-This is one demo in a wider portfolio of interactive cryptography labs — see [systemslibrarian.github.io/crypto-lab](https://systemslibrarian.github.io/crypto-lab/) for the rest, including the five PQC families overview, hybrid TLS, harvest-now-decrypt-later timelines, and deep-dives on individual schemes.
+## Related Demos
+- [crypto-lab-pki-chain](https://systemslibrarian.github.io/crypto-lab-pki-chain/) — the hierarchical CA/PKI trust model, the direct contrast to Web of Trust.
+- [crypto-lab-ed25519-forge](https://systemslibrarian.github.io/crypto-lab-ed25519-forge/) — the Ed25519 signatures that back each certification here.
+- [crypto-lab-ssh-handshake](https://systemslibrarian.github.io/crypto-lab-ssh-handshake/) — trust-on-first-use, another decentralized key-trust model.
+- [crypto-lab-merkle-vault](https://systemslibrarian.github.io/crypto-lab-merkle-vault/) — Merkle inclusion proofs and Certificate Transparency, the auditability layer for PKI.
 
 ---
 
-"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31
+*One of 60+ browser demos in the [Crypto Lab](https://crypto-lab.systemslibrarian.dev/) suite.*
+
+*"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31*

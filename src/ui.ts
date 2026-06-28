@@ -1205,6 +1205,13 @@ function renderFooter(): HTMLElement {
 				<p class="panel-copy">Educational model. The crypto (Ed25519 / ECDSA P-256 via Web Crypto) is real; the trust logic mirrors GnuPG's. The OpenPGP packet format is not modelled — use GnuPG, Sequoia-PGP, or a vetted library for production key management.</p>
 			</div>
 		</div>
+		<p class="footer-related">
+			Related demos:
+			<a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">crypto-lab-pki-chain</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-ed25519-forge/">crypto-lab-ed25519-forge</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-ssh-handshake/">crypto-lab-ssh-handshake</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-merkle-vault/">crypto-lab-merkle-vault</a>
+		</p>
 		<p class="scripture">"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31</p>
 	`;
 	return footer;

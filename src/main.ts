@@ -69,6 +69,24 @@ if (import.meta.env.DEV) {
 			const revWorks = afterRev.get('Stranger')?.valid === false;
 			console.log('Stranger invalid after Alice revokes her cert:', revWorks);
 			if (!revWorks) console.error('SELF-TEST FAIL: revocation was not applied.');
+
+			// Dedup: the same marginal introducer certifying twice must count
+			// once toward the quorum, not twice.
+			const ring2 = new Keyring();
+			await ring2.createIdentity('You');
+			await ring2.createIdentity('M');
+			await ring2.createIdentity('T');
+			await ring2.certify('You', 'M');
+			await ring2.certify('M', 'T');
+			await ring2.certify('M', 'T'); // duplicate certification
+			const dedup = await computeValidity(ring2, {
+				me: 'You',
+				ownerTrust: new Map([['M', 'marginal']]),
+				policy: { marginalsNeeded: 2, maxDepth: 5 },
+			});
+			const dedupOk = dedup.get('T')?.valid === false;
+			console.log('duplicate marginal cert counted once (T stays invalid):', dedupOk);
+			if (!dedupOk) console.error('SELF-TEST FAIL: duplicate marginal certs double-counted.');
 		} catch (err) {
 			console.error('self-test threw:', err);
 		} finally {

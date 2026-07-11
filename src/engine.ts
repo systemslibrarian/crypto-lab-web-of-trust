@@ -311,24 +311,26 @@ export async function computeValidity(
         for (const subject of ring.allNames()) {
             if (result.has(subject) && result.get(subject)!.valid) continue;
 
-            const fulls: string[] = [];
-            const marginals: string[] = [];
+            const fulls = new Set<string>();
+            const marginals = new Set<string>();
             for (const c of usableCerts) {
                 if (c.subjectName !== subject) continue;
                 if (!validBefore.has(c.signerName)) continue; // signer valid in a PRIOR layer
                 // You (the anchor) are an implicit fully-trusted introducer for keys
                 // you personally sign; otherwise use your assigned owner-trust.
                 const t = c.signerName === query.me ? 'full' : query.ownerTrust.get(c.signerName) ?? 'none';
-                if (t === 'full') fulls.push(c.signerName);
-                else if (t === 'marginal') marginals.push(c.signerName);
+                if (t === 'full') fulls.add(c.signerName);
+                else if (t === 'marginal') marginals.add(c.signerName);
             }
 
-            const valid = fulls.length >= 1 || marginals.length >= query.policy.marginalsNeeded;
+            const valid = fulls.size >= 1 || marginals.size >= query.policy.marginalsNeeded;
             if (valid) {
-                const reason = fulls.length
-                    ? `Signed by fully-trusted ${fulls.join(', ')}.`
-                    : `Signed by ${marginals.length} marginally-trusted introducers (need ${query.policy.marginalsNeeded}).`;
-                result.set(subject, { name: subject, valid: true, reason, depth, viaFull: fulls, viaMarginal: marginals });
+                const fullsArr = Array.from(fulls);
+                const marginalsArr = Array.from(marginals);
+                const reason = fullsArr.length
+                    ? `Signed by fully-trusted ${fullsArr.join(', ')}.`
+                    : `Signed by ${marginalsArr.length} marginally-trusted introducers (need ${query.policy.marginalsNeeded}).`;
+                result.set(subject, { name: subject, valid: true, reason, depth, viaFull: fullsArr, viaMarginal: marginalsArr });
                 changed = true;
             }
         }

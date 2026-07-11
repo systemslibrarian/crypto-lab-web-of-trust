@@ -63,6 +63,20 @@
   --warning-border: rgba(240, 104, 104, 0.2);
 }
 
+/* Give <html> its own solid background-color + color-scheme. WebKit promotes
+   the body/root background to paint the canvas and reports the computed html
+   background as transparent (axe then assumes a white page and flags dark-theme
+   text). A per-theme longhand on html keeps the reported page color correct. */
+html {
+  background-color: #f7efe9;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  background-color: #12101a;
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }

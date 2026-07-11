@@ -1464,7 +1464,7 @@ function renderInspectModal(): HTMLDialogElement {
 			<h3 id="inspect-modal-title">Certification payload</h3>
 			<button type="button" class="inspect-close" aria-label="Close inspector">×</button>
 		</div>
-		<div id="inspect-body" class="inspect-body"></div>
+		<div id="inspect-body" class="inspect-body" tabindex="0" role="group" aria-label="Certification payload details (scrollable)"></div>
 	`;
 	dlg.addEventListener('click', (e) => {
 		if ((e.target as HTMLElement).closest('.inspect-close')) {

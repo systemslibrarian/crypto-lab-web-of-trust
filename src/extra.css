@@ -528,6 +528,135 @@
   opacity: 0.35;
 }
 
+/* Trust-path tracing: named node groups are buttons; while a trace is
+ * active, everything off the path dims so the chain of introducers pops. */
+.graph-node-group[role="button"] {
+  cursor: pointer;
+}
+
+.graph-node-group[role="button"]:focus {
+  outline: none;
+}
+
+.graph-node-group[role="button"]:focus .graph-node {
+  stroke-width: 4.5;
+}
+
+.graph-node-group[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.graph-svg--tracing .graph-link:not(.graph-link--traced) {
+  opacity: 0.12;
+}
+
+.graph-svg--tracing .graph-node-group:not(.graph-node-group--traced) {
+  opacity: 0.25;
+}
+
+.graph-link--traced {
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.graph-node-group--traced .graph-node {
+  stroke-width: 4;
+}
+
+.graph-node-group--target .graph-node {
+  stroke-width: 5;
+}
+
+.trace-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.trace-btn:hover {
+  text-decoration-style: solid;
+}
+
+.trace-btn:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.trace-btn[aria-pressed="true"] {
+  text-decoration-style: solid;
+  color: var(--accent);
+}
+
+.trace-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: var(--panel-strong);
+}
+
+.trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trace-title {
+  margin: 0;
+  font-size: 0.98rem;
+  color: var(--ink-strong);
+}
+
+.trace-hint {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.trace-lines {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.validity-row--flood td {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.wot-flood-note {
+  margin: 4px 0 0;
+  grid-column: 1 / -1;
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+/* Guided tour */
+.guided-tour {
+  margin-top: 18px;
+}
+
+.guided-tour ol {
+  margin: 12px 0 4px;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
 .graph-flood-note {
   margin: 12px 0 0;
   font-family: var(--mono);

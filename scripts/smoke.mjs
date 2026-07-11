@@ -41,14 +41,15 @@ async function run(label, deviceOpts) {
 	const skip = await page.locator('a.skip-link').first().textContent();
 	assert(skip?.trim() === 'Skip to content', 'skip link present');
 
-	const themeBtn = page.locator('#theme-toggle');
+	// The shared crypto-lab header hides the in-page #theme-toggle and provides
+	// its own #cl-theme-toggle in the top bar — test that one.
+	const themeBtn = page.locator('#cl-theme-toggle');
 	await themeBtn.waitFor();
-	const initLabel = await themeBtn.getAttribute('aria-label');
+	const themeBefore = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
 	await themeBtn.click();
-	const afterLabel = await themeBtn.getAttribute('aria-label');
-	assert(initLabel !== afterLabel, `theme toggle flips aria-label (${initLabel} → ${afterLabel})`);
-	const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	assert(theme === 'light' || theme === 'dark', `data-theme set (${theme})`);
+	const themeAfter = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+	assert(themeBefore !== themeAfter, `theme toggle flips data-theme (${themeBefore} → ${themeAfter})`);
+	assert(themeAfter === 'light' || themeAfter === 'dark', `data-theme set (${themeAfter})`);
 	await themeBtn.click(); // restore
 
 	// Build the sample network
@@ -122,6 +123,24 @@ async function run(label, deviceOpts) {
 	const svgEdges = await page.locator('.graph-link').count();
 	assert(svgEdges >= 9, `SVG graph has >=9 edges (got ${svgEdges})`);
 
+	// Trust-path tracing: click Frank's node, trace explains the whole chain
+	const frankNode = page.locator('.graph-node-group[data-name="Frank"]');
+	await frankNode.scrollIntoViewIfNeeded();
+	await frankNode.click();
+	await page.waitForFunction(
+		() => /Frank/.test(document.querySelector('#trace-panel')?.textContent ?? ''),
+		{ timeout: 5000 },
+	);
+	const traceText = await page.locator('#trace-panel').textContent();
+	assert(/why is Frank/i.test(traceText ?? ''), 'trace panel explains why Frank is valid');
+	assert(/depth 0/.test(traceText ?? ''), 'trace walks back to the depth-0 anchor (You)');
+	const tracedEdges = await page.locator('.graph-link--traced').count();
+	assert(tracedEdges >= 4, `trace highlights the introduction-chain edges (got ${tracedEdges})`);
+	await page.click('[data-action="trace-clear"]');
+	await page.waitForFunction(() => document.querySelectorAll('.graph-link--traced').length === 0);
+	const hintVisible = await page.locator('#trace-panel .trace-hint').count();
+	assert(hintVisible === 1, 'clearing the trace restores the hint');
+
 	// Item 4: cert payload inspector opens modal
 	const firstInspectBtn = page.locator('[data-action="inspect"]').first();
 	await firstInspectBtn.scrollIntoViewIfNeeded();
@@ -187,6 +206,16 @@ async function run(label, deviceOpts) {
 	const strangerStillInvalid = await strangerAfterFlood.locator('.scenario-status--invalid').count();
 	assert(strangerStillInvalid === 1, 'Stranger remains INVALID after 50-signature flood');
 
+	// Flood collapse: trust controls and validity table must stay legible
+	const floodTrustRows = await page.locator('.trust-row[data-name^="Flood"]').count();
+	assert(floodTrustRows === 0, 'flood signers are hidden from trust controls');
+	const floodNote = await page.locator('.wot-flood-note').count();
+	assert(floodNote === 1, 'trust controls explain the hidden flood signers');
+	const floodSummaryRows = await page.locator('.validity-row--flood').count();
+	assert(floodSummaryRows === 1, 'validity table collapses flooders into one summary row');
+	const validityRowCount = await page.locator('.validity-row').count();
+	assert(validityRowCount <= 12, `validity table stays legible after flood (got ${validityRowCount} rows)`);
+
 	// Reset before tail-of-page assertions
 	await page.click('#scn-reset');
 	await page.waitForFunction(
@@ -201,6 +230,10 @@ async function run(label, deviceOpts) {
 	assert(conceptCards >= 4, `concept cards present (got ${conceptCards})`);
 	const realCards = await page.locator('#realworld .panel-card').count();
 	assert(realCards >= 8, `real-world + pitfalls cards present (got ${realCards})`);
+
+	// Guided tour present in the scenarios section
+	const tourSummary = await page.locator('.guided-tour summary').textContent();
+	assert(/Guided tour/.test(tourSummary ?? ''), 'guided tour details block present');
 
 	// Scripture footer is last visible paragraph (excluding the inspect
 	// modal, which is a sibling of the footer in DOM order but lives in a

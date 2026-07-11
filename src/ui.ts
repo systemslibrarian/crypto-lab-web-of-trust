@@ -42,11 +42,15 @@ interface AppState {
 	policy: TrustPolicy;
 	validity: Map<string, KeyValidity> | null;
 	built: boolean;
+	// Key currently selected for trust-path tracing (graph node / table click),
+	// or null when no trace is shown.
+	traced: string | null;
 	rerenderKeyring: () => void;
 	rerenderTrust: () => void;
 	rerenderValidity: () => void;
 	rerenderScenarios: () => void;
 	logScenario: (msg: string) => void;
+	buildNow: () => Promise<void>;
 }
 
 function defaultOwnerTrust(): Map<string, TrustLevel> {
@@ -87,6 +91,7 @@ async function buildSampleNetwork(state: AppState): Promise<void> {
 	state.ownerTrust = defaultOwnerTrust();
 	state.policy = { marginalsNeeded: 3, maxDepth: 5 };
 	state.validity = null;
+	state.traced = null;
 	state.built = true;
 }
 
@@ -134,7 +139,7 @@ function renderHero(): HTMLElement {
 		</div>
 		<div class="hero-metric-card">
 			<p class="hero-metric-label">At a glance</p>
-			<p class="hero-metric-value">Real ${signingAlgoName()} signatures · no central authority · you decide whom to trust</p>
+			<p class="hero-metric-value">Real <span id="algo-name">${signingAlgoName()}</span> signatures · no central authority · you decide whom to trust</p>
 			<p class="hero-metric-note">Every certification in this demo is a real cryptographic signature, verified before it counts. Forging one fails because the math fails, not because policy says so.</p>
 		</div>
 	`;
@@ -153,11 +158,11 @@ function renderKeyringSection(state: AppState): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 1</p>
 				<h2 id="keyring-heading">The keyring</h2>
-				<p class="panel-copy">Every identity here is a real keypair generated in your browser. Click <strong>Build sample network</strong> to populate a small social graph, or add a custom certification once it exists.</p>
+				<p class="panel-copy">Every identity here is a real keypair generated in your browser — a small social graph is created automatically when the page loads. <strong>Rebuild</strong> any time for fresh keys, or add your own certification below.</p>
 			</div>
 		</div>
 		<div class="wot-actions">
-			<button id="build-btn" class="tab-button" type="button">Build sample network</button>
+			<button id="build-btn" class="tab-button" type="button">Rebuild sample network</button>
 			<span id="build-status" class="wot-build-status"></span>
 		</div>
 		<div id="keyring-list" class="wot-keyring"></div>
@@ -192,7 +197,7 @@ function renderKeyringSection(state: AppState): HTMLElement {
 
 	function refresh(): void {
 		if (!state.built) {
-			list.innerHTML = `<p class="panel-copy wot-empty">No keys yet — click <strong>Build sample network</strong> to generate one.</p>`;
+			list.innerHTML = `<p class="panel-copy wot-empty">Generating the sample network…</p>`;
 			certList.innerHTML = '';
 			customWrap.hidden = true;
 			return;
@@ -248,25 +253,32 @@ function renderKeyringSection(state: AppState): HTMLElement {
 	state.rerenderKeyring = refresh;
 	refresh();
 
+	async function doBuild(): Promise<void> {
+		buildBtn.disabled = true;
+		buildBtn.setAttribute('aria-busy', 'true');
+		buildStatus.textContent = 'Generating keypairs…';
+		try {
+			await buildSampleNetwork(state);
+			buildStatus.textContent = `Generated ${state.ring.allNames().length} keypairs using ${signingAlgoName()}.`;
+			// The hero names the algorithm before feature detection has run;
+			// now that keys exist, the detected algorithm is authoritative.
+			const algoSpan = document.getElementById('algo-name');
+			if (algoSpan) algoSpan.textContent = signingAlgoName();
+			state.rerenderKeyring();
+			state.rerenderTrust();
+			state.rerenderScenarios();
+			await recompute(state);
+		} catch (err) {
+			buildStatus.textContent = `Failed: ${(err as Error).message}`;
+		} finally {
+			buildBtn.disabled = false;
+			buildBtn.removeAttribute('aria-busy');
+		}
+	}
+	state.buildNow = doBuild;
+
 	buildBtn.addEventListener('click', () => {
-		void (async () => {
-			buildBtn.disabled = true;
-			buildBtn.setAttribute('aria-busy', 'true');
-			buildStatus.textContent = 'Generating keypairs…';
-			try {
-				await buildSampleNetwork(state);
-				buildStatus.textContent = `Generated ${state.ring.allNames().length} keypairs using ${signingAlgoName()}.`;
-				state.rerenderKeyring();
-				state.rerenderTrust();
-				state.rerenderScenarios();
-				await recompute(state);
-			} catch (err) {
-				buildStatus.textContent = `Failed: ${(err as Error).message}`;
-			} finally {
-				buildBtn.disabled = false;
-				buildBtn.removeAttribute('aria-busy');
-			}
-		})();
+		void doBuild();
 	});
 
 	customBtn.addEventListener('click', () => {
@@ -492,9 +504,10 @@ function renderTrustSection(state: AppState): HTMLElement {
 			return;
 		}
 		const levels: TrustLevel[] = ['full', 'marginal', 'none'];
+		const floodCount = state.ring.allNames().filter((n) => n.startsWith('Flood')).length;
 		controls.innerHTML = state.ring
 			.allNames()
-			.filter((n) => n !== ME)
+			.filter((n) => n !== ME && !n.startsWith('Flood'))
 			.map((name) => {
 				const t = state.ownerTrust.get(name) ?? 'none';
 				return `
@@ -519,7 +532,10 @@ function renderTrustSection(state: AppState): HTMLElement {
 					</div>
 				`;
 			})
-			.join('');
+			.join('') +
+			(floodCount
+				? `<p class="panel-copy wot-flood-note">${floodCount} flood signers hidden from these controls — you never assigned them owner-trust, so they all default to <em>none</em>.</p>`
+				: '');
 		marginalsInput.value = String(state.policy.marginalsNeeded);
 		depthInput.value = String(state.policy.maxDepth);
 
@@ -665,13 +681,50 @@ function renderValiditySection(state: AppState): HTMLElement {
 		void recompute(state);
 	});
 
+	// Trust-path tracing: click a graph node or a key name in the table to
+	// highlight the chain of introducers behind that key's validity. Delegated
+	// so the handlers survive the innerHTML rerenders.
+	function toggleTrace(name: string, refocusGraph: boolean): void {
+		state.traced = state.traced === name ? null : name;
+		refresh();
+		if (refocusGraph) {
+			output
+				.querySelector<SVGGElement>(`.graph-node-group[data-name="${CSS.escape(name)}"]`)
+				?.focus();
+		}
+	}
+
+	output.addEventListener('click', (e) => {
+		const target = e.target as HTMLElement;
+		if (target.closest('[data-action="trace-clear"]')) {
+			state.traced = null;
+			refresh();
+			return;
+		}
+		const traceEl = target.closest<HTMLElement>('[data-action="trace"], .graph-node-group[data-name]');
+		const name = traceEl?.dataset.name;
+		if (name) toggleTrace(name, false);
+	});
+
+	output.addEventListener('keydown', (e: KeyboardEvent) => {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		const g = (e.target as HTMLElement).closest<HTMLElement>('.graph-node-group[data-name]');
+		if (!g || !g.dataset.name) return;
+		e.preventDefault();
+		toggleTrace(g.dataset.name, true);
+	});
+
 	return section;
 }
 
 function renderValidity(state: AppState): string {
 	const v = state.validity!;
-	const rows = state.ring
-		.allNames()
+	if (state.traced && !state.ring.allNames().includes(state.traced)) state.traced = null;
+	const allNames = state.ring.allNames();
+	const named = allNames.filter((n) => !n.startsWith('Flood'));
+	const flooders = allNames.filter((n) => n.startsWith('Flood'));
+
+	const rows = named
 		.map((name) => {
 			const kv = v.get(name)!;
 			const badge = kv.valid
@@ -680,7 +733,7 @@ function renderValidity(state: AppState): string {
 			const depth = kv.depth === -1 ? '—' : String(kv.depth);
 			return `
 				<tr class="validity-row ${kv.valid ? 'validity-row--valid' : 'validity-row--invalid'}">
-					<td><strong>${name}</strong></td>
+					<td><button type="button" class="trace-btn" data-action="trace" data-name="${name}" aria-pressed="${state.traced === name}" title="Trace the trust path to ${name}"><strong>${name}</strong></button></td>
 					<td>${badge}</td>
 					<td class="mono-cell">${depth}</td>
 					<td>${kv.reason}</td>
@@ -689,18 +742,172 @@ function renderValidity(state: AppState): string {
 		})
 		.join('');
 
+	// The flood swarm stays visible in the keyring and the graph (the clutter
+	// IS the lesson) but is collapsed to one row here so the table stays legible.
+	const floodRow = flooders.length
+		? `
+			<tr class="validity-row validity-row--invalid validity-row--flood">
+				<td><strong>Flood00–Flood${String(flooders.length - 1).padStart(2, '0')}</strong></td>
+				<td><span class="scenario-status--invalid">INVALID</span></td>
+				<td class="mono-cell">—</td>
+				<td>${flooders.length} flood signers collapsed into one row — real keys, real signatures, zero owner-trust.</td>
+			</tr>
+		`
+		: '';
+
+	const trace = state.traced ? computeTrace(state, state.traced) : null;
+
 	return `
 		<div class="table-shell" tabindex="0" role="region" aria-label="Key validity table (scrollable)">
 			<table class="math-table">
 				<thead>
 					<tr><th>Key</th><th>Validity</th><th>Depth</th><th>Reason</th></tr>
 				</thead>
-				<tbody>${rows}</tbody>
+				<tbody>${rows}${floodRow}</tbody>
 			</table>
 		</div>
 		<h3 class="wot-section-h">Trust graph</h3>
-		<p class="panel-copy">Center = you. Rings are validation depth (1 hop, 2 hops…). Edge color encodes the signer's owner-trust: <em>green</em> = full, <em>yellow</em> = marginal, <em>grey</em> = none (carries no validity).</p>
-		${renderGraphSvg(state)}
+		<p class="panel-copy">Center = you. Rings are validation depth (1 hop, 2 hops…). Edge color encodes the signer's owner-trust: <em>green</em> = full, <em>yellow</em> = marginal, <em>grey</em> = none (carries no validity). <strong>Click any node — or a key name in the table — to trace exactly how trust (or distrust) reached it.</strong></p>
+		${renderGraphSvg(state, trace)}
+		<div id="trace-panel" class="trace-panel">
+			${trace ? renderTraceHtml(trace) : `<p class="panel-copy trace-hint">No trace selected — click a node in the graph or a key name in the table to see the chain of introducers behind its verdict.</p>`}
+		</div>
+	`;
+}
+
+// ---------- Trust-path tracing ------------------------------------------------
+
+interface TraceInfo {
+	target: string;
+	valid: boolean;
+	nodes: Set<string>;
+	edges: Set<string>; // "signer=>subject"
+	lines: string[];
+}
+
+// Reconstruct WHY a key got its verdict. For a valid key, walk back through
+// the recorded viaFull/viaMarginal introducers layer by layer until You
+// (depth 0). For an invalid key, list every incoming certification and name
+// the exact rule that stopped each one from counting.
+function computeTrace(state: AppState, target: string): TraceInfo | null {
+	const v = state.validity;
+	if (!v) return null;
+	const kv = v.get(target);
+	if (!kv) return null;
+	const nodes = new Set<string>([target]);
+	const edges = new Set<string>();
+	const lines: string[] = [];
+
+	if (target === ME) {
+		lines.push(
+			'<strong>You</strong> are the ultimate anchor at depth 0. Validity is always computed from your point of view — every trust chain in this graph must end at your key.',
+		);
+		return { target, valid: true, nodes, edges, lines };
+	}
+
+	if (kv.valid) {
+		const entries: Array<{ depth: number; text: string }> = [];
+		const queue = [target];
+		const seen = new Set([target]);
+		while (queue.length) {
+			const cur = queue.shift()!;
+			const ckv = v.get(cur);
+			if (!ckv || ckv.depth === 0) continue;
+			for (const intro of [...ckv.viaFull, ...ckv.viaMarginal]) {
+				edges.add(`${intro}=>${cur}`);
+				nodes.add(intro);
+				if (!seen.has(intro)) {
+					seen.add(intro);
+					queue.push(intro);
+				}
+			}
+			const parts: string[] = [];
+			if (ckv.viaFull.length) parts.push(`fully-trusted <strong>${ckv.viaFull.join(', ')}</strong> (one is enough)`);
+			if (ckv.viaMarginal.length)
+				parts.push(
+					`${ckv.viaMarginal.length} marginally-trusted introducers (<strong>${ckv.viaMarginal.join(', ')}</strong>) against a quorum of ${state.policy.marginalsNeeded}`,
+				);
+			entries.push({
+				depth: ckv.depth,
+				text: `<strong>${cur}</strong> validated at depth ${ckv.depth} — signed by ${parts.join(' and by ')}.`,
+			});
+		}
+		entries.sort((a, b) => b.depth - a.depth);
+		lines.push(...entries.map((e) => e.text));
+		lines.push(`<strong>You</strong> — depth 0, the ultimate anchor. Every chain above ends here.`);
+		return { target, valid: true, nodes, edges, lines };
+	}
+
+	// Invalid: explain every incoming edge.
+	lines.push(`<strong>${target}</strong> is INVALID — ${kv.reason}`);
+	const incoming = state.ring.certs.filter((c) => c.subjectName === target);
+	const seenSigners = new Set<string>();
+	let floodCount = 0;
+	for (const c of incoming) {
+		nodes.add(c.signerName);
+		edges.add(`${c.signerName}=>${c.subjectName}`);
+		if (c.signerName.startsWith('Flood')) {
+			floodCount++;
+			continue;
+		}
+		if (seenSigners.has(c.signerName)) continue;
+		seenSigners.add(c.signerName);
+		lines.push(explainDeadEdge(state, c));
+	}
+	if (floodCount) {
+		lines.push(
+			`${floodCount} flood signers → ${target}: every one of those signatures verifies, but you assign none of the signers owner-trust — so none count. Cryptographically boring, operationally devastating: that was the SKS attack.`,
+		);
+	}
+	if (!incoming.length) {
+		lines.push(
+			`Nobody has certified ${target}'s key at all — the bootstrap problem. Until someone you (transitively) trust signs it, the trust walk has nothing to follow.`,
+		);
+	}
+	return { target, valid: false, nodes, edges, lines };
+}
+
+// One sentence naming the exact rule that keeps a real certification edge
+// from conferring validity on its subject.
+function explainDeadEdge(state: AppState, c: Certification): string {
+	const v = state.validity!;
+	const edge = `${c.signerName} → ${c.subjectName}`;
+	if ((c as Certification & { _forged?: boolean })._forged === true) {
+		return `${edge}: the signature does not verify. A forged certification is discarded before trust is even consulted — crypto vetoes policy.`;
+	}
+	if (isCertRevoked(state, c)) {
+		return `${edge}: ${c.signerName} revoked this certification, so the edge is dropped from the walk.`;
+	}
+	if (isKeyRevoked(state, c.signerName)) {
+		return `${edge}: ${c.signerName}'s key is revoked — certifications from a revoked key no longer count.`;
+	}
+	const skv = v.get(c.signerName);
+	if (!skv?.valid) {
+		return `${edge}: the signature is real, but ${c.signerName}'s own key is not valid from your point of view — an invalid key cannot introduce others.`;
+	}
+	if (skv.depth >= state.policy.maxDepth) {
+		return `${edge}: ${c.signerName} is valid at depth ${skv.depth}, but validating ${c.subjectName} would need depth ${skv.depth + 1} — beyond your maxDepth of ${state.policy.maxDepth}.`;
+	}
+	const t = c.signerName === ME ? 'full' : state.ownerTrust.get(c.signerName) ?? 'none';
+	if (t === 'none') {
+		return `${edge}: the signature is real and ${c.signerName}'s key is valid, but you assign ${c.signerName} owner-trust <em>none</em> — their vouching carries no weight.`;
+	}
+	if (t === 'marginal') {
+		return `${edge}: counts 1 toward the marginal quorum of ${state.policy.marginalsNeeded} — not enough on its own.`;
+	}
+	return `${edge}: should have conferred validity — if you can read this, the trace and the engine disagree (bug).`;
+}
+
+function renderTraceHtml(trace: TraceInfo): string {
+	const badge = trace.valid
+		? `<span class="scenario-status--valid">VALID</span>`
+		: `<span class="scenario-status--invalid">INVALID</span>`;
+	return `
+		<div class="trace-head">
+			<h4 class="trace-title">Trace — why is ${trace.target} ${badge}?</h4>
+			<button type="button" class="cert-row-btn" data-action="trace-clear">clear trace</button>
+		</div>
+		<ol class="trace-lines">${trace.lines.map((l) => `<li>${l}</li>`).join('')}</ol>
 	`;
 }
 
@@ -715,7 +922,7 @@ interface NodePos {
 	isFlood: boolean;
 }
 
-function renderGraphSvg(state: AppState): string {
+function renderGraphSvg(state: AppState, trace: TraceInfo | null): string {
 	const v = state.validity!;
 	const allNames = state.ring.allNames();
 	const flooders = allNames.filter((n) => n.startsWith('Flood'));
@@ -829,12 +1036,14 @@ function renderGraphSvg(state: AppState): string {
 			const revoked = isCertRevoked(state, c);
 			const signerKeyRevoked = isKeyRevoked(state, c.signerName);
 			const signerTrust = c.signerName === ME ? 'full' : state.ownerTrust.get(c.signerName) ?? 'none';
+			const onTracePath = trace?.edges.has(`${c.signerName}=>${c.subjectName}`) === true;
 			const cls = [
 				'graph-link',
 				`graph-link--${signerTrust}`,
 				forged ? 'graph-link--forged' : '',
 				revoked || signerKeyRevoked ? 'graph-link--revoked' : '',
 				a.isFlood ? 'graph-link--flood' : '',
+				onTracePath ? 'graph-link--traced' : '',
 			]
 				.filter(Boolean)
 				.join(' ');
@@ -859,11 +1068,15 @@ function renderGraphSvg(state: AppState): string {
 		})
 		.join('');
 
-	// Nodes
+	// Nodes. Named nodes are interactive (click / Enter / Space traces the
+	// trust path); the flood swarm is deliberately not focusable — 50 tab
+	// stops would be a keyboard trap of its own.
 	const nodes = [...positions.values()]
 		.map((p) => {
 			const fp = state.ring.identity(p.name)?.fingerprint ?? '';
 			const ot = p.isMe ? 'you' : state.ownerTrust.get(p.name) ?? 'none';
+			const onTracePath = trace?.nodes.has(p.name) === true;
+			const isTarget = trace?.target === p.name;
 			const cls = [
 				'graph-node',
 				p.valid ? 'graph-node--valid' : 'graph-node--invalid',
@@ -874,12 +1087,22 @@ function renderGraphSvg(state: AppState): string {
 			]
 				.filter(Boolean)
 				.join(' ');
+			const groupCls = [
+				'graph-node-group',
+				onTracePath ? 'graph-node-group--traced' : '',
+				isTarget ? 'graph-node-group--target' : '',
+			]
+				.filter(Boolean)
+				.join(' ');
 			const r = p.isMe ? 24 : p.isFlood ? 6 : 18;
 			const label = p.isFlood
 				? ''
 				: `<text class="graph-label" x="${p.x.toFixed(1)}" y="${(p.y + r + 14).toFixed(1)}" text-anchor="middle">${p.name}</text>`;
 			const title = `${p.name}${p.isFlood ? ' (untrusted flood signer)' : ''} · ${shortFp(fp)} · ${p.valid ? `valid at depth ${p.depth}` : 'invalid'}${p.revoked ? ' · key revoked' : ''}`;
-			return `<g class="graph-node-group"><circle class="${cls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}"><title>${title}</title></circle>${label}</g>`;
+			const interactive = p.isFlood
+				? ''
+				: ` data-name="${p.name}" tabindex="0" role="button" aria-pressed="${isTarget}" aria-label="Trace trust path to ${p.name}"`;
+			return `<g class="${groupCls}"${interactive}><circle class="${cls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}"><title>${title}</title></circle>${label}</g>`;
 		})
 		.join('');
 
@@ -889,7 +1112,7 @@ function renderGraphSvg(state: AppState): string {
 
 	return `
 		<div class="graph-shell">
-			<svg class="graph-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trust graph with ${named.length} named identities${flooders.length ? ` plus ${flooders.length} flood signers` : ''} and ${state.ring.certs.length} certifications">
+			<svg class="graph-svg${trace ? ' graph-svg--tracing' : ''}" viewBox="0 0 ${W} ${H}" role="group" aria-label="Trust graph with ${named.length} named identities${flooders.length ? ` plus ${flooders.length} flood signers` : ''} and ${state.ring.certs.length} certifications. Nodes are buttons that trace the trust path.">
 				<defs>
 					<marker id="wot-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
 						<path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
@@ -928,6 +1151,18 @@ function renderScenariosSection(state: AppState): HTMLElement {
 			</div>
 		</div>
 		<div id="scenario-buttons" class="wot-scenario-buttons"></div>
+		<details class="why-details guided-tour">
+			<summary>Guided tour — seven experiments, in order</summary>
+			<ol>
+				<li><strong>Read the baseline.</strong> Frank is valid at depth 2 only because Bob, Carol, <em>and</em> Dave all signed him — exactly the 3-marginal quorum. Click Frank's node in the trust graph above to see the full trace.</li>
+				<li><strong>Break the quorum.</strong> In <em>Your trust settings</em>, drop Bob to <em>none</em>. Frank flips INVALID (2 marginals &lt; 3). Now lower <code>marginalsNeeded</code> to 2 — Frank comes back. Policy, not crypto, made both calls.</li>
+				<li><strong>Over-trust Eve.</strong> Heretic is signed only by Eve. One click of full trust and Heretic is VALID — a single careless introducer expands your entire trust frontier.</li>
+				<li><strong>Forge a certification.</strong> The forged Alice → Stranger cert fails signature verification, so no trust setting can ever make it count. Crypto vetoes policy.</li>
+				<li><strong>Cut depth to 1.</strong> Every link is still trusted, but the chain is capped — keys beyond one hop drop out even though nothing else changed.</li>
+				<li><strong>Flood Stranger.</strong> Fifty <em>real</em> signatures from unknown keys change nothing about validity — the damage is the operational mess (scroll the keyring). That is the SKS keyserver story.</li>
+				<li><strong>Revoke.</strong> In <em>The keyring</em>, revoke the Alice → Eve certification and watch Eve drop out; then revoke Bob's key and see every certification he issued stop counting.</li>
+			</ol>
+		</details>
 		<div id="scenario-log" class="wot-scenario-log" aria-live="polite"></div>
 	`;
 
@@ -1193,7 +1428,7 @@ function renderRealWorldSection(): HTMLElement {
 
 function renderFooter(): HTMLElement {
 	const footer = el('footer', 'lab-section');
-	const reviewed = '2026-06';
+	const reviewed = '2026-07';
 	footer.innerHTML = `
 		<div class="footer-meta">
 			<div class="footer-meta-item">
@@ -1248,11 +1483,13 @@ export function mountApp(root: HTMLDivElement): void {
 		policy: { marginalsNeeded: 3, maxDepth: 5 },
 		validity: null,
 		built: false,
+		traced: null,
 		rerenderKeyring: () => {},
 		rerenderTrust: () => {},
 		rerenderValidity: () => {},
 		rerenderScenarios: () => {},
 		logScenario: () => {},
+		buildNow: async () => {},
 	};
 
 	const shell = el('div', 'page-shell');
@@ -1269,4 +1506,8 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderInspectModal());
 
 	root.replaceChildren(shell);
+
+	// The demo should be alive on arrival — generate the sample network
+	// immediately instead of waiting for a click.
+	void state.buildNow();
 }

@@ -11,15 +11,12 @@
 
 const enc = new TextEncoder();
 
-// Prefer Ed25519; fall back to ECDSA P-256 if the runtime lacks it.
+// Prefer Ed25519; fall back to ECDSA P-256 if the runtime lacks it. The choice
+// is resolved lazily in init() the first time we touch the keyring, because
+// probing WebCrypto requires an async generateKey() call.
 let ALGO: EcKeyGenParams | { name: 'Ed25519' };
 let SIGN: AlgorithmIdentifier | EcdsaParams;
 let usingEd = true;
-try {
-    // feature-detect at module load is awkward; we resolve lazily in init()
-} catch {
-    /* noop */
-}
 
 async function init(): Promise<void> {
     if (ALGO) return;

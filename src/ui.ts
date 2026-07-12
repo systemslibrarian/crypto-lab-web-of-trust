@@ -108,40 +108,18 @@ async function recompute(state: AppState): Promise<void> {
 // ---------- 1. Hero ----------------------------------------------------------
 
 function renderHero(): HTMLElement {
-	const hero = el('section', 'hero-panel');
+	const hero = el('header', 'cl-hero');
 	hero.innerHTML = `
-		<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light mode">🌙</button>
-		<div class="hero-copy">
-			<p class="eyebrow">Trust · Web of Trust</p>
-			<h1>Web of Trust</h1>
-			<p class="hero-text">
-				PKI trusts a central authority — a root CA that ships in your browser. PGP trusts
-				<em>people</em>. You sign keys you have personally verified, and trust propagates
-				through the social graph within limits you set. There is no root, no monopoly, and
-				no single point of failure — and also no way to talk to a stranger nobody has
-				vouched for. This demo runs the GnuPG trust computation on real Ed25519
-				signatures (with an automatic ECDSA P-256 fallback) so you can build a keyring,
-				assign trust, and watch the model decide which keys are valid from your point of
-				view.
-			</p>
-			<details class="why-details">
-				<summary>How is this different from a CA?</summary>
-				<p>
-					A CA is hierarchical: a small set of roots issues to intermediates, which
-					issue to leaves. Your browser trusts the roots because the OS vendor put them
-					there. The Web of Trust is a directed graph through people: <em>you</em>
-					decide whose signatures count, and how much. A CA failure mints a trusted
-					certificate for any name on the internet; a WoT failure validates whatever
-					one careless introducer signs. The mechanism trades centralized risk for
-					distributed responsibility.
-				</p>
-			</details>
+		<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light mode" hidden aria-hidden="true">🌙</button>
+		<div class="cl-hero-main">
+			<h1 class="cl-hero-title">Web of Trust</h1>
+			<p class="cl-hero-sub">PGP/OpenPGP · GnuPG trust model · Ed25519/ECDSA</p>
+			<p class="cl-hero-desc">Build a keyring of <span id="algo-name">${signingAlgoName()}</span>-signed identities, assign owner-trust, and watch the GnuPG trust walk decide which keys are valid from your point of view — through a marginals quorum and a maximum trust depth.</p>
 		</div>
-		<div class="hero-metric-card">
-			<p class="hero-metric-label">At a glance</p>
-			<p class="hero-metric-value">Real <span id="algo-name">${signingAlgoName()}</span> signatures · no central authority · you decide whom to trust</p>
-			<p class="hero-metric-note">Every certification in this demo is a real cryptographic signature, verified before it counts. Forging one fails because the math fails, not because policy says so.</p>
-		</div>
+		<aside class="cl-hero-why" aria-label="Why it matters">
+			<span class="cl-hero-why-label">WHY IT MATTERS</span>
+			<p class="cl-hero-why-text">Authentication with no central CA that could mint a certificate for any name — validity is a graph you build. That resilience is also its risk: one over-trusted introducer, or a signature flood, can reshape whom you believe.</p>
+		</aside>
 	`;
 	return hero;
 }

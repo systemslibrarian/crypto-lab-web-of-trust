@@ -193,7 +193,9 @@
 
 .wot-cert-row select {
   padding: 10px 34px 10px 12px;
-  border: 1px solid var(--line);
+  /* --border-strong, not --line: WCAG 2.1 SC 1.4.11. Achieved 3.44:1 (light, on
+     #fffffe) and 3.35:1 (dark, on #25212f). */
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   /* Longhand + appearance:none so WebKit renders the author color/background
      instead of its native UA select (which ignores author `color`, so axe
@@ -437,7 +439,9 @@
 
 .wot-policy input {
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  /* --border-strong, not --line: WCAG 2.1 SC 1.4.11. Achieved 3.36:1 (light, on
+     #fffcf8) and 3.67:1 (dark, on #1d1925). */
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--input-bg);
   color: var(--ink-strong);

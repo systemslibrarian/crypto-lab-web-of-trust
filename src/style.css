@@ -3,6 +3,16 @@
   --ink: #30273f;
   --ink-soft: #574a66;
   --line: rgba(33, 26, 43, 0.12);
+  /* Control boundaries only (WCAG 2.1 SC 1.4.11). The cert-row select and the policy
+     number fields are filled with --input-bg, which composites to #fffaf3 — 1.01:1
+     against the #fffffe / #fffcf8 panels they sit in — so the border is the only thing
+     delineating them. --line composites to #e4e4e6 there: 1.27:1. This grey sits on
+     the same hue ramp as that composite and is >=3.31:1 on every surface those
+     controls sit on: 3.44:1 on .wot-cert-row, 3.36:1 on .wot-policy / .lab-section,
+     3.34:1 / 3.31:1 on --panel over the two --surface-bg gradient stops, 3.31:1 on the
+     controls' own fill. --line is left unchanged for decorative rules — card outlines,
+     dividers, table rules. */
+  --border-strong: #8a8a8b;
   --panel: rgba(255, 252, 248, 0.84);
   --panel-strong: rgba(255, 255, 255, 0.92);
   --accent: #0b7fab;
@@ -42,6 +52,13 @@
   --ink: #d5cfe0;
   --ink-soft: #a99eb8;
   --line: rgba(200, 190, 220, 0.14);
+  /* Control boundaries only (WCAG 2.1 SC 1.4.11) — see the :root note. Dark --line
+     composites to #3c3647 on .wot-cert-row (1.37:1) and #35303f on .wot-policy
+     (1.35:1). This violet-grey, on the same hue ramp as the dark --line, is >=3.35:1
+     on every surface those controls sit on: 3.35:1 on .wot-cert-row (#25212f), 3.67:1
+     on .wot-policy / .lab-section (#1d1925), 3.86:1 on the controls' own fill, 4.02:1
+     on the --surface-bg gradient. */
+  --border-strong: #777183;
   --panel: rgba(30, 26, 38, 0.88);
   --panel-strong: rgba(38, 33, 48, 0.94);
   --accent: #4dc3f7;

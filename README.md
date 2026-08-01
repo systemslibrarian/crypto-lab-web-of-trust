@@ -25,6 +25,7 @@ The page walks through six sections, and the sample network builds itself on pag
 - Web of Trust does not scale to trusting strangers — the model breaks down at web scale, which is precisely why TLS adopted hierarchical PKI instead.
 - Forged certifications are caught only because signatures are verified cryptographically; trust policy alone never makes a bad signature valid.
 - Keyserver and distribution risks are real: the SKS keyserver certificate-flooding incident showed how unauthenticated certification attachment can be abused; revocation and key hygiene remain hard in practice.
+- Comparing a truncated key identifier is not comparing a key: RFC 4880 §12.2 defines a V4 fingerprint as the full 160-bit (20-byte) SHA-1 of the public-key packet and the Key ID as merely its low-order 64 bits, while noting that Key IDs can collide. The Evil 32 project demonstrated this at scale in 2014, finding a colliding 32-bit key ID for every key in the Web of Trust strong set. The identifiers this demo displays are deliberately truncated to 8 bytes and labelled as such in the UI, so the shortcut is visible rather than implied.
 
 ## Real-World Usage
 

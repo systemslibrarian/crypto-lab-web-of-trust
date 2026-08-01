@@ -107,6 +107,10 @@ export const FAILURE_LESSONS: LessonCard[] = [
 		title: 'A click is not identity verification',
 		body: 'Signing a key is supposed to mean "I checked their government ID, compared fingerprints in person, and confirmed they control the private half." In practice many signatures attest to far less. The model assumes diligent humans; the keyservers cannot enforce that assumption.',
 	},
+	{
+		title: 'Comparing a truncated fingerprint is not comparing a key',
+		body: 'RFC 4880 makes a V4 fingerprint the full 160-bit SHA-1 of the public-key packet; the Key ID is merely its low-order 64 bits, and GnuPG long displayed an even shorter 32-bit form. The RFC itself warns that Key IDs can collide. In 2014 the Evil 32 project made that concrete — using GPUs it found a colliding 32-bit key ID for every key in the Web of Trust\'s strong set, roughly four seconds of work each, and published them to the keyservers. Nothing was broken cryptographically; the short identifier simply never carried enough bits to identify anything. Compare full fingerprints. The identifiers on the keyring above are deliberately truncated to 8 bytes so you can see the shape of that mistake.',
+	},
 ];
 
 export interface RealWorldNote {

@@ -139,6 +139,17 @@ function renderKeyringSection(state: AppState): HTMLElement {
 				<p class="panel-copy">Every identity here is a real keypair generated in your browser — a small social graph is created automatically when the page loads. <strong>Rebuild</strong> any time for fresh keys, or add your own certification below.</p>
 			</div>
 		</div>
+		<p class="panel-copy wot-fp-note" role="note">
+			<strong>The identifiers below are truncated on purpose.</strong> Each is SHA-256 over the
+			public key, cut to its first <strong>8 bytes</strong>. A real OpenPGP V4 fingerprint is
+			<strong>20 bytes</strong> — the full 160-bit SHA-1 of the public-key packet
+			(<a href="https://datatracker.ietf.org/doc/html/rfc4880#section-12.2" target="_blank" rel="noopener noreferrer">RFC 4880 §12.2</a>);
+			the modern V6 fingerprint is 32 bytes of SHA-256
+			(<a href="https://www.rfc-editor.org/rfc/rfc9580.html" target="_blank" rel="noopener noreferrer">RFC 9580</a>).
+			Eight bytes is the size of an OpenPGP <em>Key ID</em>, not a fingerprint — and short IDs
+			collide, which is a real lesson rather than a rounding error. See
+			<em>“Comparing a truncated fingerprint is not comparing a key”</em> under Pitfalls below.
+		</p>
 		<div class="wot-actions">
 			<button id="build-btn" class="tab-button" type="button">Rebuild sample network</button>
 			<span id="build-status" class="wot-build-status"></span>
@@ -209,7 +220,7 @@ function renderKeyringSection(state: AppState): HTMLElement {
 							<span class="identity-name">${name}</span>
 							${badge}
 						</div>
-						<p class="identity-fp">${shortFp(ident.fingerprint)}</p>
+						<p class="identity-fp" title="Truncated to 8 bytes. A real OpenPGP V4 fingerprint is 20 bytes."><span class="identity-fp-tag">short ID · 8 B</span>${shortFp(ident.fingerprint)}</p>
 						${action}
 					</div>
 				`;

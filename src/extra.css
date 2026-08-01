@@ -92,6 +92,32 @@
   color: var(--metric-muted);
 }
 
+/* These identifiers are 8 bytes, not the 20 of a real OpenPGP V4 fingerprint.
+   The tag says so inline so the truncation is never mistaken for the whole
+   thing — short IDs colliding is the historical lesson, not an implementation
+   detail to hide. */
+.identity-fp-tag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--line, currentColor);
+  border-radius: 999px;
+  font-family: var(--sans, inherit);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  vertical-align: 1px;
+}
+
+.wot-fp-note {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent, currentColor);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in oklab, var(--accent, gray) 8%, transparent);
+}
+
 .identity-card--revoked {
   opacity: 0.7;
 }

@@ -58,7 +58,12 @@ export type TrustLevel = 'full' | 'marginal' | 'none';
 export interface Identity {
     name: string;
     publicKeyJwk: JsonWebKey;
-    fingerprint: string; // short hex of the public key
+    /**
+     * An 8-byte truncation of SHA-256 over the public key — the size of an
+     * OpenPGP Key ID, NOT of a fingerprint (V4 is 20 bytes, V6 is 32).
+     * See `fingerprintOf` below for why the short form is deliberate.
+     */
+    fingerprint: string;
 }
 
 interface PrivateIdentity extends Identity {
@@ -72,6 +77,22 @@ export interface Certification {
     signatureB64: string;
 }
 
+/**
+ * A deliberately SHORT key identifier: SHA-256 over the public key, truncated to
+ * its first 8 bytes.
+ *
+ * This is not the size of a real fingerprint and must not be read as one.
+ * RFC 4880 §12.2 makes a V4 fingerprint the full 160-bit (20-byte) SHA-1 of the
+ * public-key packet, and RFC 9580 gives V6 keys a 32-byte SHA-256 fingerprint.
+ * Eight bytes is the size of an OpenPGP *Key ID* — the low-order 64 bits of the
+ * fingerprint — and RFC 4880 explicitly warns that Key IDs can collide.
+ *
+ * The truncation is kept, and labelled in the UI, because short identifiers
+ * colliding is itself part of the Web of Trust story: the Evil 32 project found
+ * a colliding 32-bit key ID for every key in the WoT strong set and published
+ * them to the keyservers. Showing a short ID beside a note on why short IDs are
+ * not identities teaches more than silently printing 20 bytes nobody reads.
+ */
 async function fingerprintOf(jwk: JsonWebKey): Promise<string> {
     const material = (jwk.x ?? '') + (jwk.y ?? '');
     const d = await crypto.subtle.digest('SHA-256', enc.encode(material) as BufferSource);

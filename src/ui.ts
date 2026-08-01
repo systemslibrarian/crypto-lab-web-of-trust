@@ -718,7 +718,9 @@ function renderValidity(state: AppState): string {
 			const kv = v.get(name)!;
 			const badge = kv.valid
 				? `<span class="scenario-status--valid">VALID</span>`
-				: `<span class="scenario-status--invalid">INVALID</span>`;
+				: kv.revoked
+					? `<span class="scenario-status--invalid">REVOKED</span>`
+					: `<span class="scenario-status--invalid">INVALID</span>`;
 			const depth = kv.depth === -1 ? '—' : String(kv.depth);
 			return `
 				<tr class="validity-row ${kv.valid ? 'validity-row--valid' : 'validity-row--invalid'}">

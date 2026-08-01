@@ -275,6 +275,12 @@ export interface KeyValidity {
     depth: number; // shortest validation depth from you
     viaFull: string[]; // fully-trusted introducers who signed it
     viaMarginal: string[]; // marginally-trusted introducers who signed it
+    /**
+     * The owner published a self-revocation that verifies under this key.
+     * Such a key is never `valid`, no matter who has certified it — RFC 4880
+     * §5.2.1 on signature type 0x20: "A revoked key is not to be used."
+     */
+    revoked: boolean;
 }
 
 // Compute which keys are VALID from your point of view. Only certifications
@@ -310,13 +316,44 @@ export async function computeValidity(
     // specific edge has been retracted. NOTE: revoking YOUR OWN key would
     // disable your ability to act as an introducer; we intentionally do not
     // short-circuit `me` here so the consequence is visible in the output.
+    //
+    // Simplification worth naming: this drops EVERY certification made by a
+    // revoked key. RFC 4880 §5.2.3.23 makes that depend on the revocation
+    // reason — a key revoked as compromised taints its past signatures, while
+    // one merely superseded or retired leaves them valid. This model has no
+    // reason codes, so it takes the conservative branch for all revocations.
     const usableCerts = goodCerts.filter(
         (c) => !revokedKeys.has(c.signerName) && !revokedEdges.has(`${c.signerName}=>${c.subjectName}`),
     );
 
     const result = new Map<string, KeyValidity>();
-    // your own key is ultimately valid at depth 0
-    result.set(query.me, { name: query.me, valid: true, reason: 'Your own key (ultimate trust).', depth: 0, viaFull: [], viaMarginal: [] });
+
+    // A revoked key is not valid, full stop. RFC 4880 §5.2.1 defines signature
+    // type 0x20 (key revocation) as "calculated directly on the key being
+    // revoked. A revoked key is not to be used." Certifications pointing AT a
+    // revoked key therefore cannot rescue it: the owner has retired it, and no
+    // amount of third-party vouching overrides the owner's own signed statement.
+    //
+    // This is separate from dropping certifications made BY a revoked key
+    // (handled above via `usableCerts`). One is "you may not use this key";
+    // the other is "this key may not vouch for others".
+    for (const name of revokedKeys) {
+        result.set(name, {
+            name,
+            valid: false,
+            reason:
+                'Key revoked by its owner (self-revocation verifies under this key). RFC 4880 §5.2.1: a revoked key is not to be used, whoever else has certified it.',
+            depth: -1,
+            viaFull: [],
+            viaMarginal: [],
+            revoked: true,
+        });
+    }
+
+    // your own key is ultimately valid at depth 0 — unless you revoked it
+    if (!revokedKeys.has(query.me)) {
+        result.set(query.me, { name: query.me, valid: true, reason: 'Your own key (ultimate trust).', depth: 0, viaFull: [], viaMarginal: [], revoked: false });
+    }
 
     // iteratively expand validity up to maxDepth. A signer can confer validity
     // only if THEIR key is already valid AND you assign them owner-trust.
@@ -328,6 +365,7 @@ export async function computeValidity(
         let changed = false;
         for (const subject of ring.allNames()) {
             if (result.has(subject) && result.get(subject)!.valid) continue;
+            if (revokedKeys.has(subject)) continue; // a revoked key can never become valid
 
             const fulls = new Set<string>();
             const marginals = new Set<string>();
@@ -348,7 +386,7 @@ export async function computeValidity(
                 const reason = fullsArr.length
                     ? `Signed by fully-trusted ${fullsArr.join(', ')}.`
                     : `Signed by ${marginalsArr.length} marginally-trusted introducers (need ${query.policy.marginalsNeeded}).`;
-                result.set(subject, { name: subject, valid: true, reason, depth, viaFull: fullsArr, viaMarginal: marginalsArr });
+                result.set(subject, { name: subject, valid: true, reason, depth, viaFull: fullsArr, viaMarginal: marginalsArr, revoked: false });
                 changed = true;
             }
         }
@@ -363,7 +401,7 @@ export async function computeValidity(
             const reason = signers.length
                 ? `Signed by ${signers.join(', ')}, but no trusted path reaches them.`
                 : 'No certifications — unknown key.';
-            result.set(name, { name, valid: false, reason, depth: -1, viaFull: [], viaMarginal: [] });
+            result.set(name, { name, valid: false, reason, depth: -1, viaFull: [], viaMarginal: [], revoked: false });
         }
     }
 

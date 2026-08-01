@@ -272,7 +272,9 @@ describe('computeValidity — depth reporting and maxDepth cutoff', () => {
 describe('computeValidity — revocation filtering', () => {
   it('revoking a signer KEY drops every certification that signer made', async () => {
     // You -> Alice, Alice -> X, Alice -> Y. Revoke Alice's key: X and Y lose
-    // their introducer. Alice herself stays valid (You signed her directly).
+    // their introducer, and Alice herself goes invalid. Your direct signature
+    // on her key does not rescue it — RFC 4880 §5.2.1: a revoked key is not to
+    // be used, whoever else has certified it.
     const ring = await ringOf(['You', 'Alice', 'X', 'Y']);
     await ring.certify('You', 'Alice');
     await ring.certify('Alice', 'X');
@@ -285,9 +287,13 @@ describe('computeValidity — revocation filtering', () => {
 
     await ring.revokeKey('Alice');
     const after = await computeValidity(ring, q);
-    expect(v(after, 'Alice').valid).toBe(true); // still directly signed by You
+    expect(v(after, 'Alice').valid).toBe(false); // owner retired it, You cannot override
+    expect(v(after, 'Alice').revoked).toBe(true);
     expect(v(after, 'X').valid).toBe(false);
     expect(v(after, 'Y').valid).toBe(false);
+    // X and Y lost an introducer; they are not themselves revoked.
+    expect(v(after, 'X').revoked).toBe(false);
+    expect(v(after, 'Y').revoked).toBe(false);
   });
 
   it('revoking a single EDGE drops only that certification, not the signer\'s others', async () => {

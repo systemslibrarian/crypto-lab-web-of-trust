@@ -1471,15 +1471,22 @@ export function mountApp(root: HTMLDivElement): void {
 	};
 
 	const shell = el('div', 'page-shell');
-	shell.id = 'playground-heading';
 
-	shell.appendChild(renderHero());
-	shell.appendChild(renderKeyringSection(state));
-	shell.appendChild(renderTrustSection(state));
-	shell.appendChild(renderValiditySection(state));
-	shell.appendChild(renderScenariosSection(state));
-	shell.appendChild(renderConceptsSection());
-	shell.appendChild(renderRealWorldSection());
+	// The sections live in a <main> landmark (the skip link target); the footer
+	// stays a sibling so it keeps its own contentinfo landmark.
+	const mainEl = el('main');
+	mainEl.id = 'playground-heading';
+	mainEl.tabIndex = -1;
+
+	mainEl.appendChild(renderHero());
+	mainEl.appendChild(renderKeyringSection(state));
+	mainEl.appendChild(renderTrustSection(state));
+	mainEl.appendChild(renderValiditySection(state));
+	mainEl.appendChild(renderScenariosSection(state));
+	mainEl.appendChild(renderConceptsSection());
+	mainEl.appendChild(renderRealWorldSection());
+
+	shell.appendChild(mainEl);
 	shell.appendChild(renderFooter());
 	shell.appendChild(renderInspectModal());
 

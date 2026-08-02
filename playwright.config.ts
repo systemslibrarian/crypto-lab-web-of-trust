@@ -1,9 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Strict accessibility (axe-core) gate. Serves the built site with vite
- * preview under its GitHub Pages base path and scans a single Chromium
- * project in both themes.
+ * Strict accessibility (axe-core) gate. Builds, then serves the built site
+ * with vite preview under its GitHub Pages base path, and scans a single
+ * Chromium project in both themes.
  */
 const PORT = 4334;
 const BASE = '/crypto-lab-web-of-trust/';
@@ -26,7 +26,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run preview -- --port ${PORT} --strictPort`,
+    // Build before previewing. `vite preview` only serves whatever is already in
+    // dist/, so without this a failed build leaves the last good bundle in place
+    // and the scan passes green against source that no longer compiles.
+    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}${BASE}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

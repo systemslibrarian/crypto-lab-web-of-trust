@@ -1,8 +1,8 @@
 // Headless smoke test — desktop + mobile viewports, real interactions.
-// Run after `npm run preview` is serving on http://localhost:4173.
+// Run after `npm run preview` is serving on http://localhost:4710.
 import { chromium, devices } from 'playwright';
 
-const URL = 'http://localhost:4173/crypto-lab-web-of-trust/';
+const URL = 'http://localhost:4710/crypto-lab-web-of-trust/';
 
 function assert(cond, msg) {
 	if (!cond) {

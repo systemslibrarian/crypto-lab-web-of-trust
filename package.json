@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs",
     "axe": "node scripts/axe.mjs",
-    "test:a11y": "playwright test"
+    "test:a11y": "playwright test",
+    "test:claims": "playwright test e2e/claims.spec.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

@@ -866,6 +866,15 @@ function explainDeadEdge(state: AppState, c: Certification): string {
 	if ((c as Certification & { _forged?: boolean })._forged === true) {
 		return `${edge}: the signature does not verify. A forged certification is discarded before trust is even consulted — crypto vetoes policy.`;
 	}
+	// The SUBJECT's own key being revoked outranks anything the edge could say:
+	// the certification may be a perfectly good signature from a fully-trusted
+	// introducer and the key is still not to be used. Without this branch,
+	// tracing a self-revoked key fell through every test below — nothing is
+	// wrong with the edge itself — and printed the "the trace and the engine
+	// disagree (bug)" line at the bottom of this function.
+	if (isKeyRevoked(state, c.subjectName)) {
+		return `${edge}: the signature is real and ${c.signerName} is a trusted introducer, but ${c.subjectName} self-revoked this key — RFC 4880 §5.2.1, a revoked key is not to be used, so no certification can bring it back.`;
+	}
 	if (isCertRevoked(state, c)) {
 		return `${edge}: ${c.signerName} revoked this certification, so the edge is dropped from the walk.`;
 	}

@@ -443,12 +443,12 @@ function openInspectModal(state: AppState, certIdx: number): void {
 		<p class="inspect-caption">UTF-8 text:</p>
 		<pre class="inspect-block">${payloadText}</pre>
 		<p class="inspect-caption">Hex:</p>
-		<pre class="inspect-block inspect-block--hex">${groupHex(payloadHex)}</pre>
+		<pre class="inspect-block inspect-block--hex" tabindex="0" role="region" aria-label="Signed payload in hexadecimal">${groupHex(payloadHex)}</pre>
 		<h4>Signature (${sigBytes.length} bytes)</h4>
 		<p class="inspect-caption">Base64 (as stored):</p>
 		<pre class="inspect-block inspect-block--wrap">${cert.signatureB64}</pre>
 		<p class="inspect-caption">Hex:</p>
-		<pre class="inspect-block inspect-block--hex">${groupHex(sigHex)}</pre>
+		<pre class="inspect-block inspect-block--hex" tabindex="0" role="region" aria-label="Signature in hexadecimal">${groupHex(sigHex)}</pre>
 	`;
 	dlg.showModal();
 }

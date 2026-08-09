@@ -106,7 +106,9 @@
   font-size: 0.68rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.75;
+  /* No `opacity`. This tag is already set apart by a border, a pill radius,
+     uppercase and a smaller size; fading it on top of all that dropped it to
+     4.12:1 dark and 4.22:1 light for no cue the reader did not already have. */
   vertical-align: 1px;
 }
 
@@ -591,7 +593,17 @@
   opacity: 0.12;
 }
 
-.graph-svg--tracing .graph-node-group:not(.graph-node-group--traced) {
+/* The dim goes on the node SHAPE, never on the group.
+ *
+ * `opacity` on the <g> renders the whole subtree — circle AND label — into one
+ * group and fades it together, which took the off-path key names to 1.74:1 in
+ * the light theme and 2.13:1 in the dark one. A name at 25% opacity is not
+ * de-emphasised, it is unreadable, and it was the previous gate's
+ * `opacity: 1 !important` injection that made this look fine. Fading the circle
+ * alone gives exactly the same "the path pops" affordance while the labels stay
+ * legible — and a child cannot opt out of an ancestor's opacity group, so this
+ * has to be done at the shape, not undone at the label. */
+.graph-svg--tracing .graph-node-group:not(.graph-node-group--traced) .graph-node {
   opacity: 0.25;
 }
 
@@ -914,7 +926,10 @@ code {
   padding: 1px 6px;
   border-radius: 6px;
   background: rgba(11, 127, 171, 0.08);
-  color: var(--accent);
+  /* --accent on its own 8% cyan fill is 3.94:1 in the light theme — a chip and
+     its ink drifting toward the same hue. --accent-ink is the same hue carried
+     down; in the dark theme it IS --accent, so nothing changes there. */
+  color: var(--accent-ink);
 }
 
 [data-theme="dark"] code {

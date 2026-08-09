@@ -16,6 +16,12 @@
   --panel: rgba(255, 252, 248, 0.84);
   --panel-strong: rgba(255, 255, 255, 0.92);
   --accent: #0b7fab;
+  /* --accent is a mid cyan chosen for borders, links and the radial wash. As
+     SMALL TEXT on this theme's light surfaces it does not reach 4.5:1: 2.88:1
+     on the hero aside (which sits over the page's own radial tint) and 3.94:1
+     on an inset `code` fill. --accent-ink is the same hue carried down far
+     enough — 5.65:1 and 7.58:1 respectively. Borders and washes stay --accent. */
+  --accent-ink: #05506d;
   --accent-2: #c43b3b;
   --accent-3: #edb444;
   --accent-4: #136f63;
@@ -62,6 +68,8 @@
   --panel: rgba(30, 26, 38, 0.88);
   --panel-strong: rgba(38, 33, 48, 0.94);
   --accent: #4dc3f7;
+  /* Bright cyan on a near-black canvas was never the problem — see :root. */
+  --accent-ink: #4dc3f7;
   --accent-2: #f06868;
   --accent-3: #f0c95a;
   --accent-4: #3dd9c4;
@@ -235,6 +243,17 @@ button {
   color: var(--metric-fg);
 }
 
+/* The FOOTER borrows this class but not its container.
+   `.hero-metric-card` paints `--metric-bg`, a near-black gradient, which is why
+   `--metric-muted` is a near-white at 78%. `.footer-meta-item` has no such
+   background — it sits on the page — so the same class painted rgb(249,244,238)
+   on rgb(255,255,254): 1.09:1, text that is not there. A class lifted out of the
+   card it was written for takes the card's ink with it and leaves the card's
+   background behind. */
+.footer-meta-item .hero-metric-label {
+  color: var(--ink-soft);
+}
+
 .hero-metric-label {
   margin: 0;
   font-size: 0.82rem;
@@ -262,7 +281,7 @@ button {
 .cl-hero-sub{margin:.4rem 0 0;font-size:clamp(.9rem,1.6vw,1.05rem);letter-spacing:.01em;opacity:.85;color:var(--ink);}
 .cl-hero-desc{margin:.55rem 0 0;font-size:1rem;line-height:1.5;color:var(--ink-soft);max-width:60ch;}
 .cl-hero-why{flex:0 1 min(40%,26rem);min-width:min(100%,15rem);border:1px solid var(--line);border-radius:10px;padding:.85rem 1.05rem;background:color-mix(in oklab,var(--accent) 6%,transparent);}
-.cl-hero-why-label{display:block;font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent);}
+.cl-hero-why-label{display:block;font-size:.68rem;font-weight:700;letter-spacing:.14em;color:var(--accent-ink);}
 .cl-hero-why-text{margin:.35rem 0 0;font-size:.95rem;line-height:1.5;color:var(--ink);}
 @media (max-width:640px){.cl-hero{flex-direction:column;}.cl-hero-why{flex-basis:auto;width:100%;}.cl-hero-main{flex-basis:auto;min-width:0;}}
 
@@ -395,8 +414,12 @@ button {
   color: var(--accent-4);
 }
 
+/* --warning-fg, not --accent-2. --accent-2 is the swatch/border red; as text on
+   the tinted invalid row it is 4.47:1 light and 4.34:1 dark. --warning-fg is the
+   ink this stylesheet already defines for exactly that surface — 10.2:1 and
+   7.02:1 — and it was simply not being used here. */
 .scenario-status--invalid {
-  color: var(--accent-2);
+  color: var(--warning-fg);
 }
 
 .table-shell {

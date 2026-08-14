@@ -422,6 +422,18 @@
   color: var(--mono-block-bg);
 }
 
+/* An active pill drops its border and lets its fill BE the control's boundary,
+ * which is fine for full (#136f63) and none (--ink-soft) — both dark enough to
+ * clear 3:1 on this theme's near-white panels on their own. Marginal fills with
+ * --accent-3, an amber, and reaches only 1.87:1 there: the one active pill with
+ * no discernible edge (WCAG 1.4.11). Give it back --border-strong, the token
+ * this theme sizes for exactly this job at >=3.31:1 on every surface these pills
+ * sit on. Dark needs no counterpart — the same amber on a near-black panel is
+ * already well past 3:1, which is why this failed in one theme only. */
+[data-theme="light"] .trust-pill--marginal.is-active {
+  border-color: var(--border-strong);
+}
+
 .wot-policy {
   display: flex;
   flex-wrap: wrap;

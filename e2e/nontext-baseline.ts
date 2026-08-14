@@ -35,6 +35,5 @@ export const NONTEXT_BASELINE: Record<
   "control-boundary|button.inspect-close": { ratio: 1.28, required: 3.0, unverified: false },
   "control-boundary|button.trust-pill.trust-pill--full": { ratio: 1.28, required: 3.0, unverified: false },
   "control-boundary|button.trust-pill.trust-pill--marginal": { ratio: 1.28, required: 3.0, unverified: false },
-  "control-boundary|button.trust-pill.trust-pill--marginal.is-active": { ratio: 1.87, required: 3.0, unverified: false },
   "control-boundary|button.trust-pill.trust-pill--none": { ratio: 1.28, required: 3.0, unverified: false }
 };

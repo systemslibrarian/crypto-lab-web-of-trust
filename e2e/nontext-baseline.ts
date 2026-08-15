@@ -19,7 +19,6 @@ export const NONTEXT_BASELINE: Record<
 > = {
   "control-boundary|a.cl-btn": { ratio: 1.58, required: 3.0, unverified: false },
   "control-boundary|button#build-btn.tab-button": { ratio: 1.19, required: 3.0, unverified: false },
-  "control-boundary|button#cl-theme-toggle.cl-btn.cl-icon": { ratio: 1.58, required: 3.0, unverified: false },
   "control-boundary|button#compute-btn.tab-button": { ratio: 1.23, required: 3.0, unverified: false },
   "control-boundary|button#custom-cert-btn.tab-button": { ratio: 1.27, required: 3.0, unverified: false },
   "control-boundary|button#recompute-btn.tab-button": { ratio: 1.23, required: 3.0, unverified: false },

@@ -41,16 +41,11 @@ async function run(label, deviceOpts) {
 	const skip = await page.locator('a.skip-link').first().textContent();
 	assert(skip?.trim() === 'Skip to content', 'skip link present');
 
-	// The shared crypto-lab header hides the in-page #theme-toggle and provides
-	// its own #cl-theme-toggle in the top bar — test that one.
-	const themeBtn = page.locator('#cl-theme-toggle');
-	await themeBtn.waitFor();
-	const themeBefore = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	await themeBtn.click();
-	const themeAfter = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-	assert(themeBefore !== themeAfter, `theme toggle flips data-theme (${themeBefore} → ${themeAfter})`);
-	assert(themeAfter === 'light' || themeAfter === 'dark', `data-theme set (${themeAfter})`);
-	await themeBtn.click(); // restore
+	// Dark is the only theme: the page pins it before first paint and the shared
+	// header carries no toggle, so there is nothing to flip.
+	const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+	assert(theme === 'dark', `page is pinned to the dark theme (${theme})`);
+	assert((await page.locator('#cl-theme-toggle').count()) === 0, 'no theme toggle in the shared header');
 
 	// Build the sample network
 	await buildNetwork(page);

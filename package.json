@@ -15,7 +15,7 @@
     "test:claims": "playwright test e2e/claims.spec.ts"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.2",
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "axe-core": "^4.12.0",
     "playwright": "^1.62.1",

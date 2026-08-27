@@ -20,7 +20,7 @@
     "axe-core": "^4.12.0",
     "playwright": "^1.62.1",
     "typescript": "~7.0.2",
-    "vite": "^8.2.0",
+    "vite": "^8.2.2",
     "vitest": "^4.1.10"
   }
 }

@@ -59,9 +59,13 @@ export interface Identity {
     name: string;
     publicKeyJwk: JsonWebKey;
     /**
-     * An 8-byte truncation of SHA-256 over the public key — the size of an
-     * OpenPGP Key ID, NOT of a fingerprint (V4 is 20 bytes, V6 is 32).
-     * See `fingerprintOf` below for why the short form is deliberate.
+     * The full 32-byte SHA-256 JWK thumbprint digest, encoded as hexadecimal.
+     * Certification and revocation payloads bind to this value.
+     */
+    keyDigest: string;
+    /**
+     * The first 8 bytes of `keyDigest`, retained only as a deliberately short
+     * display identifier. It is never used as a cryptographic key binding.
      */
     fingerprint: string;
 }
@@ -78,8 +82,32 @@ export interface Certification {
 }
 
 /**
- * A deliberately SHORT key identifier: SHA-256 over the public key, truncated to
- * its first 8 bytes.
+ * Canonicalise the required public JWK members exactly as RFC 7638 requires.
+ * RFC 8037 defines the OKP member set used by Ed25519; RFC 7638 defines the EC
+ * member set used by the P-256 fallback. Optional JWK metadata is deliberately
+ * excluded so equivalent public keys have the same thumbprint.
+ */
+function jwkThumbprintInput(jwk: JsonWebKey): string {
+    if (jwk.kty === 'OKP' && jwk.crv && jwk.x) {
+        return JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x });
+    }
+    if (jwk.kty === 'EC' && jwk.crv && jwk.x && jwk.y) {
+        return JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
+    }
+    throw new Error(`Unsupported public JWK for thumbprint: ${jwk.kty ?? 'missing kty'}`);
+}
+
+export async function jwkThumbprintDigest(jwk: JsonWebKey): Promise<string> {
+    const canonicalJwk = jwkThumbprintInput(jwk);
+    const digest = await crypto.subtle.digest('SHA-256', enc.encode(canonicalJwk) as BufferSource);
+    return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+/**
+ * A deliberately SHORT key identifier: the first 8 bytes of the full SHA-256
+ * JWK thumbprint digest.
  *
  * This is not the size of a real fingerprint and must not be read as one.
  * RFC 4880 §12.2 makes a V4 fingerprint the full 160-bit (20-byte) SHA-1 of the
@@ -87,24 +115,15 @@ export interface Certification {
  * Eight bytes is the size of an OpenPGP *Key ID* — the low-order 64 bits of the
  * fingerprint — and RFC 4880 explicitly warns that Key IDs can collide.
  *
- * The truncation is kept, and labelled in the UI, because short identifiers
+ * The truncation is kept for display, and labelled in the UI, because short identifiers
  * colliding is itself part of the Web of Trust story: the Evil 32 project found
  * a colliding 32-bit key ID for every key in the WoT strong set and published
  * them to the keyservers. Showing a short ID beside a note on why short IDs are
  * not identities teaches more than silently printing 20 bytes nobody reads.
  */
-async function fingerprintOf(jwk: JsonWebKey): Promise<string> {
-    const material = (jwk.x ?? '') + (jwk.y ?? '');
-    const d = await crypto.subtle.digest('SHA-256', enc.encode(material) as BufferSource);
-    return Array.from(new Uint8Array(d))
-        .slice(0, 8)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-}
-
 // the bytes a certification signs: subject name + subject public key
 function certBytes(subject: Identity): Uint8Array {
-    return enc.encode(`certify:${subject.name}:${subject.fingerprint}`);
+    return enc.encode(`certify:${subject.name}:${subject.keyDigest}`);
 }
 
 // Public-facing view of the payload `certify` signs. Same bytes as the
@@ -118,13 +137,13 @@ export function certifyPayloadBytes(subject: Identity): Uint8Array {
 // with the key they wish to retire; verification must succeed under that
 // same key, which is how the engine knows the owner actually authorised it.
 function revokeKeyBytes(subject: Identity): Uint8Array {
-    return enc.encode(`revoke-key:${subject.name}:${subject.fingerprint}`);
+    return enc.encode(`revoke-key:${subject.name}:${subject.keyDigest}`);
 }
 
 // Bytes signed by a certifier revoking their OWN earlier certification of a
 // subject. Verifies under the signer's key.
 function revokeCertBytes(signer: Identity, subject: Identity): Uint8Array {
-    return enc.encode(`revoke-cert:${signer.name}->${subject.name}:${subject.fingerprint}`);
+    return enc.encode(`revoke-cert:${signer.name}->${subject.name}:${subject.keyDigest}`);
 }
 
 export type RevocationType = 'key' | 'cert';
@@ -148,19 +167,22 @@ export class Keyring {
     revocations: Revocation[] = [];
 
     async createIdentity(name: string): Promise<Identity> {
+        if (!name) throw new Error('Identity name must not be empty.');
+        if (this.people.has(name)) throw new Error(`Identity already exists: ${name}`);
         await init();
         const kp = (await crypto.subtle.generateKey(ALGO, true, ['sign', 'verify'])) as CryptoKeyPair;
         const publicKeyJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
-        const fingerprint = await fingerprintOf(publicKeyJwk);
-        const id: PrivateIdentity = { name, publicKeyJwk, fingerprint, privateKey: kp.privateKey };
+        const keyDigest = await jwkThumbprintDigest(publicKeyJwk);
+        const fingerprint = keyDigest.slice(0, 16);
+        const id: PrivateIdentity = { name, publicKeyJwk, keyDigest, fingerprint, privateKey: kp.privateKey };
         this.people.set(name, id);
-        return { name, publicKeyJwk, fingerprint };
+        return { name, publicKeyJwk, keyDigest, fingerprint };
     }
 
     identity(name: string): Identity | undefined {
         const p = this.people.get(name);
         if (!p) return undefined;
-        return { name: p.name, publicKeyJwk: p.publicKeyJwk, fingerprint: p.fingerprint };
+        return { name: p.name, publicKeyJwk: p.publicKeyJwk, keyDigest: p.keyDigest, fingerprint: p.fingerprint };
     }
 
     allNames(): string[] {
@@ -236,6 +258,11 @@ export class Keyring {
     }
 
     async verifyRevocation(rev: Revocation): Promise<boolean> {
+        if (rev.type !== 'key' && rev.type !== 'cert') return false;
+        // A key revocation is valid only when the key owner signs for itself.
+        // Without this structural check, a third party could sign the target's
+        // revocation payload and be accepted as that target's revoker.
+        if (rev.type === 'key' && rev.signerName !== rev.subjectName) return false;
         const signer = this.people.get(rev.signerName);
         const subject = this.people.get(rev.subjectName);
         if (!signer || !subject) return false;

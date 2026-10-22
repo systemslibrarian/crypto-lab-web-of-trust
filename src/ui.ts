@@ -42,6 +42,10 @@ interface AppState {
 	policy: TrustPolicy;
 	validity: Map<string, KeyValidity> | null;
 	built: boolean;
+	// Monotonic tokens prevent older asynchronous builds or trust computations
+	// from overwriting state produced by a newer user action.
+	buildRevision: number;
+	computationRevision: number;
 	// Key currently selected for trust-path tracing (graph node / table click),
 	// or null when no trace is shown.
 	traced: string | null;
@@ -66,7 +70,9 @@ function defaultOwnerTrust(): Map<string, TrustLevel> {
 	return m;
 }
 
-async function buildSampleNetwork(state: AppState): Promise<void> {
+async function buildSampleNetwork(state: AppState): Promise<boolean> {
+	const buildRevision = ++state.buildRevision;
+	state.computationRevision += 1;
 	const ring = new Keyring();
 	const names = ['You', 'Alice', 'Bob', 'Carol', 'Dave', 'Eve', 'Frank', 'Heretic', 'Stranger'];
 	for (const n of names) {
@@ -87,22 +93,31 @@ async function buildSampleNetwork(state: AppState): Promise<void> {
 		const r = await ring.certify(s, t);
 		if ('error' in r) throw new Error(`Failed to certify ${s} -> ${t}: ${r.error}`);
 	}
+	if (buildRevision !== state.buildRevision) return false;
 	state.ring = ring;
 	state.ownerTrust = defaultOwnerTrust();
 	state.policy = { marginalsNeeded: 3, maxDepth: 5 };
 	state.validity = null;
 	state.traced = null;
 	state.built = true;
+	return true;
 }
 
-async function recompute(state: AppState): Promise<void> {
-	if (!state.built) return;
-	state.validity = await computeValidity(state.ring, {
+async function recompute(state: AppState): Promise<boolean> {
+	if (!state.built) return false;
+	const computationRevision = ++state.computationRevision;
+	const ring = state.ring;
+	const ownerTrust = new Map(state.ownerTrust);
+	const policy = { ...state.policy };
+	const validity = await computeValidity(ring, {
 		me: ME,
-		ownerTrust: state.ownerTrust,
-		policy: state.policy,
+		ownerTrust,
+		policy,
 	});
+	if (computationRevision !== state.computationRevision || ring !== state.ring) return false;
+	state.validity = validity;
 	state.rerenderValidity();
+	return true;
 }
 
 // ---------- 1. Hero ----------------------------------------------------------
@@ -147,7 +162,11 @@ function renderKeyringSection(state: AppState): HTMLElement {
 			the modern V6 fingerprint is 32 bytes of SHA-256
 			(<a href="https://www.rfc-editor.org/rfc/rfc9580.html" target="_blank" rel="noopener noreferrer">RFC 9580</a>).
 			Eight bytes is the size of an OpenPGP <em>Key ID</em>, not a fingerprint — and short IDs
-			collide, which is a real lesson rather than a rounding error. See
+			collide, which is a real lesson rather than a rounding error. These short IDs are display-only:
+			certification and revocation signatures bind the full 32-byte SHA-256 JWK thumbprint defined by
+			<a href="https://www.rfc-editor.org/rfc/rfc7638.html" target="_blank" rel="noopener noreferrer">RFC 7638</a>
+			(with Ed25519's OKP members from <a href="https://www.rfc-editor.org/rfc/rfc8037.html#section-2" target="_blank" rel="noopener noreferrer">RFC 8037 §2</a>).
+			See
 			<em>“Comparing a truncated fingerprint is not comparing a key”</em> under Pitfalls below.
 		</p>
 		<div class="wot-actions">
@@ -157,7 +176,7 @@ function renderKeyringSection(state: AppState): HTMLElement {
 		<div id="keyring-list" class="wot-keyring"></div>
 		<div id="custom-cert" class="wot-custom-cert" hidden>
 			<h3>Add a custom certification</h3>
-			<p class="panel-copy">Pick a signer and a subject. The signer's private key (in this browser session) produces a real signature over the subject's name + fingerprint.</p>
+			<p class="panel-copy">Pick a signer and a subject. The signer's private key (in this browser session) produces a real signature over the subject's name + full SHA-256 JWK thumbprint.</p>
 			<div class="wot-cert-row">
 				<label>
 					<span>Signer</span>
@@ -247,7 +266,7 @@ function renderKeyringSection(state: AppState): HTMLElement {
 		buildBtn.setAttribute('aria-busy', 'true');
 		buildStatus.textContent = 'Generating keypairs…';
 		try {
-			await buildSampleNetwork(state);
+			if (!(await buildSampleNetwork(state))) return;
 			buildStatus.textContent = `Generated ${state.ring.allNames().length} keypairs using ${signingAlgoName()}.`;
 			// The hero names the algorithm before feature detection has run;
 			// now that keys exist, the detected algorithm is authoritative.
@@ -1288,15 +1307,24 @@ async function scenarioFlood(state: AppState): Promise<void> {
 	// the cryptographic invariance here and measure the validity-compute time
 	// before/after so the operational cost is visible.
 	const N = 50;
+	const ring = state.ring;
+	state.computationRevision += 1;
 	const tBefore = performance.now();
-	await computeValidity(state.ring, { me: ME, ownerTrust: state.ownerTrust, policy: state.policy });
+	await computeValidity(ring, {
+		me: ME,
+		ownerTrust: new Map(state.ownerTrust),
+		policy: { ...state.policy },
+	});
+	if (ring !== state.ring) return;
 	const baselineMs = performance.now() - tBefore;
 
 	for (let i = 0; i < N; i++) {
 		const name = `Flood${String(i).padStart(2, '0')}`;
-		await state.ring.createIdentity(name);
+		if (!ring.identity(name)) await ring.createIdentity(name);
+		if (ring !== state.ring) return;
 		// Each flooder is not assigned owner-trust → defaults to 'none'.
-		const r = await state.ring.certify(name, 'Stranger');
+		if (ring.certs.some((c) => c.signerName === name && c.subjectName === 'Stranger')) continue;
+		const r = await ring.certify(name, 'Stranger');
 		if ('error' in r) {
 			state.logScenario(`Flooding failed at iteration ${i}: ${r.error}`);
 			state.rerenderKeyring();
@@ -1304,21 +1332,22 @@ async function scenarioFlood(state: AppState): Promise<void> {
 			await recompute(state);
 			return;
 		}
+		state.computationRevision += 1;
 	}
 
 	const tAfter = performance.now();
-	const validity = await computeValidity(state.ring, {
+	await computeValidity(ring, {
 		me: ME,
-		ownerTrust: state.ownerTrust,
-		policy: state.policy,
+		ownerTrust: new Map(state.ownerTrust),
+		policy: { ...state.policy },
 	});
+	if (ring !== state.ring) return;
 	const afterMs = performance.now() - tAfter;
-	state.validity = validity;
 	state.rerenderKeyring();
 	state.rerenderTrust();
-	state.rerenderValidity();
+	if (!(await recompute(state))) return;
 
-	const stranger = validity.get('Stranger');
+	const stranger = state.validity?.get('Stranger');
 	const slowdown = baselineMs > 0 ? (afterMs / baselineMs).toFixed(1) : '∞';
 	state.logScenario(
 		stranger?.valid
@@ -1328,7 +1357,7 @@ async function scenarioFlood(state: AppState): Promise<void> {
 }
 
 async function scenarioReset(state: AppState): Promise<void> {
-	await buildSampleNetwork(state);
+	if (!(await buildSampleNetwork(state))) return;
 	state.rerenderKeyring();
 	state.rerenderTrust();
 	state.rerenderScenarios();
@@ -1428,7 +1457,7 @@ function renderRealWorldSection(): HTMLElement {
 
 function renderFooter(): HTMLElement {
 	const footer = el('footer', 'lab-section');
-	const reviewed = '2026-07';
+	const reviewed = '2026-10';
 	footer.innerHTML = `
 		<div class="footer-meta">
 			<div class="footer-meta-item">
@@ -1483,6 +1512,8 @@ export function mountApp(root: HTMLDivElement): void {
 		policy: { marginalsNeeded: 3, maxDepth: 5 },
 		validity: null,
 		built: false,
+		buildRevision: 0,
+		computationRevision: 0,
 		traced: null,
 		rerenderKeyring: () => {},
 		rerenderTrust: () => {},

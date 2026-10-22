@@ -109,7 +109,7 @@ export const FAILURE_LESSONS: LessonCard[] = [
 	},
 	{
 		title: 'Comparing a truncated fingerprint is not comparing a key',
-		body: 'RFC 4880 makes a V4 fingerprint the full 160-bit SHA-1 of the public-key packet; the Key ID is merely its low-order 64 bits, and GnuPG long displayed an even shorter 32-bit form. The RFC itself warns that Key IDs can collide. In 2014 the Evil 32 project made that concrete — using GPUs it found a colliding 32-bit key ID for every key in the Web of Trust\'s strong set, roughly four seconds of work each, and published them to the keyservers. Nothing was broken cryptographically; the short identifier simply never carried enough bits to identify anything. Compare full fingerprints. The identifiers on the keyring above are deliberately truncated to 8 bytes so you can see the shape of that mistake.',
+		body: 'RFC 4880 makes a V4 fingerprint the full 160-bit SHA-1 of the public-key packet; the Key ID is merely its low-order 64 bits, and GnuPG long displayed an even shorter 32-bit form. The RFC itself warns that Key IDs can collide. In 2014 the Evil 32 project made that concrete — using GPUs it found a colliding 32-bit key ID for every key in the Web of Trust\'s strong set, roughly four seconds of work each, and published them to the keyservers. Nothing was broken cryptographically; the short identifier simply never carried enough bits to identify anything. Compare full fingerprints. The identifiers on the keyring above are deliberately truncated to 8 bytes so you can see the shape of that mistake, but signatures bind the full 32-byte JWK thumbprint instead.',
 	},
 ];
 

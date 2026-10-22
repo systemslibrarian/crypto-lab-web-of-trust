@@ -19,7 +19,12 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   Keyring,
+  certifyPayloadBytes,
   computeValidity,
+  jwkThumbprintDigest,
+  signingAlgoName,
+  type Identity,
+  type Revocation,
   type TrustLevel,
   type TrustQuery,
   type KeyValidity,
@@ -49,6 +54,23 @@ function v(map: Map<string, KeyValidity>, name: string): KeyValidity {
   return r;
 }
 
+type PrivateIdentityForTest = Identity & { privateKey: CryptoKey };
+
+/** Sign an adversarial payload with an identity's real private key. */
+async function signAs(ring: Keyring, name: string, payload: Uint8Array): Promise<string> {
+  const people = (ring as unknown as { people: Map<string, PrivateIdentityForTest> }).people;
+  const signer = people.get(name);
+  if (!signer) throw new Error(`missing test signer ${name}`);
+  const algorithm: AlgorithmIdentifier | EcdsaParams =
+    signingAlgoName() === 'Ed25519'
+      ? { name: 'Ed25519' }
+      : { name: 'ECDSA', hash: 'SHA-256' };
+  const signature = await crypto.subtle.sign(algorithm, signer.privateKey, payload as BufferSource);
+  let binary = '';
+  for (const byte of new Uint8Array(signature)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 // Sanity-check the crypto primitive once so a failure here is diagnosable and
 // distinct from a logic failure below.
 beforeAll(async () => {
@@ -61,6 +83,33 @@ beforeAll(async () => {
 // --- real crypto: signatures are genuinely verified -----------------------
 
 describe('certification signatures are real', () => {
+  it('matches the RFC 8037 Ed25519 JWK thumbprint test vector', async () => {
+    const digest = await jwkThumbprintDigest({
+      kty: 'OKP',
+      crv: 'Ed25519',
+      x: '11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo',
+    });
+    expect(digest).toBe('90facafea9b1556698540f70c0117a22ea37bd5cf3ed3c47093c1707282b4b89');
+  });
+
+  it('binds the subject name to the full canonical SHA-256 JWK thumbprint', async () => {
+    const ring = await ringOf(['Alice', 'Bob']);
+    const bob = ring.identity('Bob')!;
+    const payload = new TextDecoder().decode(certifyPayloadBytes(bob));
+
+    expect(bob.keyDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(bob.fingerprint).toBe(bob.keyDigest.slice(0, 16));
+    expect(payload).toBe(`certify:Bob:${bob.keyDigest}`);
+    expect(payload).not.toBe(`certify:Bob:${bob.fingerprint}`);
+  });
+
+  it('refuses to overwrite an existing identity and silently invalidate its signatures', async () => {
+    const ring = await ringOf(['Alice', 'Bob']);
+    const cert = await ring.certify('Alice', 'Bob');
+    await expect(ring.createIdentity('Bob')).rejects.toThrow(/already exists/i);
+    expect(await ring.verifyCert(cert as never)).toBe(true);
+  });
+
   it('a freshly issued certification verifies', async () => {
     const ring = await ringOf(['Alice', 'Bob']);
     const cert = await ring.certify('Alice', 'Bob');
@@ -323,23 +372,30 @@ describe('computeValidity — revocation filtering', () => {
     expect(v(map, 'X').valid).toBe(true);
   });
 
-  it('a key revocation signed by the wrong key does not take effect', async () => {
+  it('a third party cannot revoke another identity even with a valid signature over its payload', async () => {
     const ring = await ringOf(['You', 'Alice', 'Mallory', 'X']);
     await ring.certify('You', 'Alice');
     await ring.certify('Alice', 'X');
     const q = query('You', { Alice: 'full' }, { marginalsNeeded: 3, maxDepth: 5 });
 
-    // Mallory tries to revoke Alice's key by signing the key-revocation payload
-    // for Alice with Mallory's own key. verifyRevocation checks the signature
-    // under signerName's key AND the payload names the subject, so a self-
-    // revocation forged by a third party must be rejected.
-    const mallorysRevoke = (await ring.revokeKey('Mallory')) as { signatureB64: string };
-    ring.revocations.push({
+    // This is stronger than substituting random bytes: Mallory's signature is
+    // cryptographically valid under Mallory's public key and covers Alice's
+    // exact key-revocation payload. The structural self-revocation rule must
+    // still reject it because signerName !== subjectName.
+    const alice = ring.identity('Alice')!;
+    const signatureB64 = await signAs(
+      ring,
+      'Mallory',
+      new TextEncoder().encode(`revoke-key:Alice:${alice.keyDigest}`),
+    );
+    const attemptedRevocation: Revocation = {
       type: 'key',
-      signerName: 'Alice',
+      signerName: 'Mallory',
       subjectName: 'Alice',
-      signatureB64: mallorysRevoke.signatureB64,
-    });
+      signatureB64,
+    };
+    expect(await ring.verifyRevocation(attemptedRevocation)).toBe(false);
+    ring.revocations.push(attemptedRevocation);
     const map = await computeValidity(ring, q);
     expect(v(map, 'X').valid).toBe(true); // Alice not actually revoked
   });

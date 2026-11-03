@@ -1020,3 +1020,9 @@ code {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 }
+
+.observer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.observer-grid p { overflow-wrap: anywhere; }
+.observer-trust { display: flex; align-items: start; gap: .7rem; margin: 1rem 0; }
+.observer-trust input { width: auto; }
+@media (max-width: 680px) { .observer-grid { grid-template-columns: 1fr; } }

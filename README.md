@@ -55,3 +55,9 @@ npm run dev
 *Part of the [Crypto Lab](https://crypto-lab.systemslibrarian.dev/) suite.*
 
 *"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31*
+
+## Independent public observers
+
+The “Same signatures. Different received records” section snapshots two public keyrings, issues a genuine signed revocation and delivers it separately. A corrupted signature is rejected before storage; key revocations must be self-signed in this model. Owner trust stays local. The experiment shows received records, last accepted event and computed reasons. It neither contacts a keyserver nor implements OpenPGP packets, reason codes or designated revokers. Revocation does not erase existing copies.
+
+Unit coverage checks delayed delivery, copy isolation, forged signatures, wrong-owner signatures and independent owner trust. The browser regression exercises the corresponding visible states. Sources are credited in the rendered section by title and printed page.

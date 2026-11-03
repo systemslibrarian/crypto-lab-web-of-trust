@@ -181,21 +181,7 @@ export class Keyring {
 
     // verify a single certification's signature is real and valid
     async verifyCert(cert: Certification): Promise<boolean> {
-        const signer = this.people.get(cert.signerName);
-        const subject = this.people.get(cert.subjectName);
-        if (!signer || !subject) return false;
-        try {
-            await init();
-            const key = await crypto.subtle.importKey('jwk', signer.publicKeyJwk, ALGO, false, ['verify']);
-            return await crypto.subtle.verify(
-                SIGN,
-                key,
-                unb64(cert.signatureB64) as BufferSource,
-                certBytes(subject) as BufferSource,
-            );
-        } catch {
-            return false;
-        }
+        return verifyCert(this, cert);
     }
 
     // Owner retires their own key. The signature is produced with the very
@@ -236,8 +222,70 @@ export class Keyring {
     }
 
     async verifyRevocation(rev: Revocation): Promise<boolean> {
-        const signer = this.people.get(rev.signerName);
-        const subject = this.people.get(rev.subjectName);
+        return verifyRevocation(this, rev);
+    }
+}
+
+
+/** Only public records and verification are needed to compute a verdict. */
+export interface PublicTrustView {
+    readonly certs: Certification[];
+    readonly revocations: Revocation[];
+    identity(name: string): Identity | undefined;
+    allNames(): string[];
+    verifyCert(cert: Certification): Promise<boolean>;
+    verifyRevocation(rev: Revocation): Promise<boolean>;
+}
+
+/** An independent copy, with no signing key or reference to the issuing ring. */
+export class PublicKeyring implements PublicTrustView {
+    private people: Map<string, Identity>;
+    private certificates: Certification[];
+    private received: Revocation[];
+    constructor(source: PublicTrustView) {
+        this.people = new Map(source.allNames().map(name => [name, structuredClone(source.identity(name)!)]));
+        this.certificates = structuredClone(source.certs);
+        this.received = structuredClone(source.revocations);
+    }
+    get certs(): Certification[] { return structuredClone(this.certificates); }
+    get revocations(): Revocation[] { return structuredClone(this.received); }
+    identity(name: string): Identity | undefined { return structuredClone(this.people.get(name)); }
+    allNames(): string[] { return [...this.people.keys()]; }
+    verifyCert(cert: Certification): Promise<boolean> { return verifyCert(this, cert); }
+    verifyRevocation(rev: Revocation): Promise<boolean> { return verifyRevocation(this, rev); }
+    async receive(rev: Revocation): Promise<'accepted' | 'duplicate' | 'rejected'> {
+        // Snapshot before awaiting so the verified bytes are the stored bytes.
+        const copy = structuredClone(rev);
+        if (!await this.verifyRevocation(copy)) return 'rejected';
+        if (this.received.some(r => r.type === copy.type && r.signerName === copy.signerName &&
+            r.subjectName === copy.subjectName && r.signatureB64 === copy.signatureB64)) return 'duplicate';
+        this.received.push(copy);
+        return 'accepted';
+    }
+}
+
+async function verifyCert(view: PublicTrustView, cert: Certification): Promise<boolean> {
+        const signer = view.identity(cert.signerName);
+        const subject = view.identity(cert.subjectName);
+        if (!signer || !subject) return false;
+        try {
+            await init();
+            const key = await crypto.subtle.importKey('jwk', signer.publicKeyJwk, ALGO, false, ['verify']);
+            return await crypto.subtle.verify(
+                SIGN,
+                key,
+                unb64(cert.signatureB64) as BufferSource,
+                certBytes(subject) as BufferSource,
+            );
+        } catch {
+            return false;
+        }
+    }
+async function verifyRevocation(view: PublicTrustView, rev: Revocation): Promise<boolean> {
+        if (rev.type !== 'key' && rev.type !== 'cert') return false;
+        if (rev.type === 'key' && rev.signerName !== rev.subjectName) return false;
+        const signer = view.identity(rev.signerName);
+        const subject = view.identity(rev.subjectName);
         if (!signer || !subject) return false;
         try {
             await init();
@@ -254,7 +302,6 @@ export class Keyring {
             return false;
         }
     }
-}
 
 // --- trust computation -----------------------------------------------------
 export interface TrustPolicy {
@@ -293,7 +340,7 @@ export interface KeyValidity {
 // the input set. The trust math itself is unchanged — only the universe of
 // certifications it operates on shrinks.
 export async function computeValidity(
-    ring: Keyring,
+    ring: PublicTrustView,
     query: TrustQuery,
 ): Promise<Map<string, KeyValidity>> {
     // keep only real, verifying certifications

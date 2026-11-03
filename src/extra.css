@@ -1026,3 +1026,5 @@ code {
 .observer-trust { display: flex; align-items: start; gap: .7rem; margin: 1rem 0; }
 .observer-trust input { width: auto; }
 @media (max-width: 680px) { .observer-grid { grid-template-columns: 1fr; } }
+
+#independent-observers .tab-button { border-color: var(--border-strong); }

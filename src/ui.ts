@@ -1,4 +1,5 @@
 import { renderObservers } from './observer-ui.ts';
+import { renderLogLines } from './log-lines.ts';
 // ui.ts — Web of Trust interactive UI.
 //
 // Mounts a single `mountApp(root)` that renders the whole demo. State (the
@@ -1193,7 +1194,7 @@ function renderScenariosSection(state: AppState): HTMLElement {
 	state.logScenario = (msg: string) => {
 		const stamp = new Date().toLocaleTimeString();
 		logLines.unshift(`[${stamp}] ${msg}`);
-		log.innerHTML = logLines.slice(0, 8).map((l) => `<p class="wot-log-line">${l}</p>`).join('');
+		renderLogLines(log, document, logLines);
 	};
 
 	function refresh(): void {

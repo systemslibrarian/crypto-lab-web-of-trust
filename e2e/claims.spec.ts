@@ -445,13 +445,20 @@ test('the inspector shows the exact bytes that were signed', async ({ page }) =>
   await expect(page.locator('#inspect-modal')).toBeVisible();
   const body = ((await page.locator('#inspect-body').textContent()) ?? '').replace(/\s+/g, ' ');
 
-  // The payload is exactly `certify:<subject>:<subject fingerprint>` — with the
-  // fingerprint read off the subject's own keyring card, not hardcoded.
+  // The payload binds the subject to a full 32-byte SHA-256 JWK thumbprint.
+  // The 8-byte value on the keyring card is only a display identifier and
+  // must equal the leading bytes of, but never replace, that full digest.
   const subject = (
     await page.locator('.cert-row[data-cert-idx="0"] .cert-row-subject').textContent()
   )!.trim();
-  const expectedPayload = `certify:${subject}:${fingerprints[subject]}`;
+  const payloadMatch = body.match(/certify:([^:\s]+):([0-9a-f]{64})/);
+  expect(payloadMatch).not.toBeNull();
+  expect(payloadMatch![1]).toBe(subject);
+  const keyDigest = payloadMatch![2];
+  const expectedPayload = `certify:${subject}:${keyDigest}`;
   expect(fingerprints[subject]).toMatch(/^[0-9a-f]{16}$/); // 8 bytes, as the page claims
+  expect(keyDigest.slice(0, 16)).toBe(fingerprints[subject]);
+  expect(keyDigest).not.toBe(fingerprints[subject]);
   expect(body).toContain(expectedPayload);
 
   // The stated byte counts must match the bytes actually rendered.
@@ -477,6 +484,90 @@ test('the inspector shows the exact bytes that were signed', async ({ page }) =>
     .textContent())!.replace(/\s+/g, '');
   expect(sigHex.length).toBe(sigLen * 2);
   await page.locator('#inspect-modal .inspect-close').click();
+});
+
+test('an older asynchronous computation cannot overwrite the latest policy', async ({ page }) => {
+  await page.evaluate(() => {
+    const testWindow = window as typeof window & {
+      __firstVerifyPaused?: boolean;
+      __releaseFirstVerify?: () => void;
+      __olderComputationFinished?: boolean;
+    };
+    const subtle = crypto.subtle;
+    const originalVerify = subtle.verify.bind(subtle);
+    let pauseFirst = true;
+    let released = false;
+    let callsAfterRelease = 0;
+
+    Object.defineProperty(subtle, 'verify', {
+      configurable: true,
+      value: async (
+        algorithm: AlgorithmIdentifier | RsaPssParams | EcdsaParams,
+        key: CryptoKey,
+        signature: BufferSource,
+        data: BufferSource,
+      ): Promise<boolean> => {
+        if (pauseFirst) {
+          pauseFirst = false;
+          testWindow.__firstVerifyPaused = true;
+          await new Promise<void>((resolve) => {
+            testWindow.__releaseFirstVerify = () => {
+              released = true;
+              resolve();
+            };
+          });
+        }
+        const result = await originalVerify(algorithm, key, signature, data);
+        if (released) {
+          callsAfterRelease += 1;
+          // The sample network has nine certifications. Once all nine old
+          // verifications return, a timer runs after its recompute continuation.
+          if (callsAfterRelease === 9) {
+            window.setTimeout(() => {
+              testWindow.__olderComputationFinished = true;
+            }, 0);
+          }
+        }
+        return result;
+      },
+    });
+  });
+
+  const depth = page.locator('#policy-depth');
+  await depth.fill('5');
+  await depth.dispatchEvent('change');
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          (window as typeof window & { __firstVerifyPaused?: boolean }).__firstVerifyPaused,
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await depth.fill('1');
+  await depth.dispatchEvent('change');
+  await expectVerdictsSelfConsistent(page, 'newer depth-1 computation');
+
+  await page.evaluate(() => {
+    (window as typeof window & { __releaseFirstVerify?: () => void }).__releaseFirstVerify?.();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          (window as typeof window & { __olderComputationFinished?: boolean })
+            .__olderComputationFinished,
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await expect(depth).toHaveValue('1');
+  await expectVerdictsSelfConsistent(page, 'older depth-5 computation discarded');
+  await expectVerdict(page, 'Eve', 'INVALID');
+  await expectVerdict(page, 'Frank', 'INVALID');
 });
 
 test('over-trusting one introducer validates the key only they signed', async ({ page }) => {

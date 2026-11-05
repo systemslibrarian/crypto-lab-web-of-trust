@@ -1,3 +1,4 @@
+import { renderObservers } from './observer-ui.ts';
 // ui.ts — Web of Trust interactive UI.
 //
 // Mounts a single `mountApp(root)` that renders the whole demo. State (the
@@ -1536,6 +1537,7 @@ export function mountApp(root: HTMLDivElement): void {
 	mainEl.appendChild(renderTrustSection(state));
 	mainEl.appendChild(renderValiditySection(state));
 	mainEl.appendChild(renderScenariosSection(state));
+	mainEl.appendChild(renderObservers());
 	mainEl.appendChild(renderConceptsSection());
 	mainEl.appendChild(renderRealWorldSection());
 

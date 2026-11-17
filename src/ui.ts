@@ -234,7 +234,7 @@ function renderKeyringSection(state: AppState): HTMLElement {
 				const action =
 					isMe || revoked
 						? ''
-						: `<button type="button" class="identity-revoke-btn" data-action="revoke-key" data-name="${name}" aria-label="Revoke ${name}'s key (self-revocation)">revoke key</button>`;
+						: `<button type="button" class="identity-revoke-btn" data-action="revoke-key" data-name="${name}" aria-label="revoke key — ${name}'s own key (self-revocation)">revoke key</button>`;
 				return `
 					<div class="${cls}">
 						<div class="identity-card-head">

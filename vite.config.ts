@@ -7,5 +7,5 @@ export default defineConfig({
   // a sibling's harness even after its own scripts moved off 4173. It also keeps
   // scripts/smoke.mjs honest: it tells you to reach it with `npm run preview`
   // and then connects to this port.
-  preview: { port: 4710, strictPort: true },
+  preview: { port: 4334, strictPort: true },
 });

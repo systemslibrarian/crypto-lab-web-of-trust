@@ -1,5 +1,7 @@
 // Headless smoke test — desktop + mobile viewports, real interactions.
-// Run after `npm run preview` is serving on http://localhost:4710.
+// Run after `npm run preview` is serving on http://localhost:4334 -- this
+// lab's port, and what OWN_PORT below already uses. The comment said 4710,
+// which belongs to crypto-lab-sm2-forge.
 import { chromium, devices } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
